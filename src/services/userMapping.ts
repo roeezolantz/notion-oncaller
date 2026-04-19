@@ -21,6 +21,15 @@ export class UserMappingService {
     }
   }
 
+  async getEmailBySlackId(slackUserId: string): Promise<string | null> {
+    try {
+      const result = await this.slackClient.users.info({ user: slackUserId });
+      return result.user?.profile?.email || null;
+    } catch {
+      return null;
+    }
+  }
+
   async getSlackMention(email: string): Promise<string> {
     const userId = await this.getSlackUserId(email);
     return userId ? `<@${userId}>` : email;
