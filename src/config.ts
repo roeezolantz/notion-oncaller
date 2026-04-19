@@ -1,0 +1,16 @@
+export const config = {
+  notion: {
+    apiKey: process.env.NOTION_API_KEY || '',
+    oncallDbId: process.env.NOTION_ONCALL_DB_ID || '',
+    constraintsDbId: process.env.NOTION_CONSTRAINTS_DB_ID || '',
+  },
+  slack: {
+    botToken: process.env.SLACK_BOT_TOKEN || '',
+    signingSecret: process.env.SLACK_SIGNING_SECRET || '',
+    oncallChannel: process.env.SLACK_ONCALL_CHANNEL || '',
+    oncallUsergroupId: process.env.SLACK_ONCALL_USERGROUP_ID || '',
+  },
+  cron: {
+    secret: process.env.CRON_SECRET || '',
+  },
+} as const;
