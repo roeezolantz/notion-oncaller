@@ -17,13 +17,13 @@ gcloud functions deploy "$FUNCTION_NAME" \
   --region="$REGION" \
   --runtime=nodejs20 \
   --trigger-http \
-  --allow-unauthenticated \
   --entry-point=app \
   --source=. \
   --set-env-vars="$(grep -v '^#' .env | grep -v '^$' | tr '\n' ',')" \
   --memory=256MB \
   --timeout=60s \
-  --gen2
+  --gen2 \
+  --service-account=fhenix-monitoring@appspot.gserviceaccount.com
 
 FUNCTION_URL=$(gcloud functions describe "$FUNCTION_NAME" \
   --project="$PROJECT_ID" \

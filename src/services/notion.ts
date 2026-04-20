@@ -15,8 +15,8 @@ export class NotionService {
   // --- Shifts ---
 
   async getShiftsByDate(date: string): Promise<Shift[]> {
-    const response = await this.client.databases.query({
-      database_id: this.oncallDbId,
+    const response = await this.client.dataSources.query({
+      data_source_id: this.oncallDbId,
       filter: {
         property: 'Shift Dates',
         date: {
@@ -28,8 +28,8 @@ export class NotionService {
   }
 
   async getActiveShift(): Promise<Shift | null> {
-    const response = await this.client.databases.query({
-      database_id: this.oncallDbId,
+    const response = await this.client.dataSources.query({
+      data_source_id: this.oncallDbId,
       filter: {
         property: 'Status',
         status: {
@@ -42,8 +42,8 @@ export class NotionService {
   }
 
   async getUpcomingShifts(): Promise<Shift[]> {
-    const response = await this.client.databases.query({
-      database_id: this.oncallDbId,
+    const response = await this.client.dataSources.query({
+      data_source_id: this.oncallDbId,
       filter: {
         property: 'Status',
         status: {
@@ -61,8 +61,8 @@ export class NotionService {
   }
 
   async getShiftsForPerson(email: string): Promise<Shift[]> {
-    const response = await this.client.databases.query({
-      database_id: this.oncallDbId,
+    const response = await this.client.dataSources.query({
+      data_source_id: this.oncallDbId,
       filter: {
         or: [
           {
@@ -178,8 +178,8 @@ export class NotionService {
   }
 
   async getConstraintsForPerson(email: string): Promise<Constraint[]> {
-    const response = await this.client.databases.query({
-      database_id: this.constraintsDbId,
+    const response = await this.client.dataSources.query({
+      data_source_id: this.constraintsDbId,
     });
     const constraints = response.results.map((page: any) => this.parseConstraint(page));
     return constraints.filter((c: Constraint) => c.personEmail === email);

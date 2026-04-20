@@ -3,7 +3,7 @@ import { NotionService } from '../notion';
 // Mock the Notion client
 jest.mock('@notionhq/client', () => ({
   Client: jest.fn().mockImplementation(() => ({
-    databases: {
+    dataSources: {
       query: jest.fn(),
     },
     pages: {
@@ -143,12 +143,12 @@ describe('NotionService', () => {
   describe('getShiftsByDate', () => {
     it('should query the oncall DB filtered by date', async () => {
       const page = makeShiftPage();
-      mockClient.databases.query.mockResolvedValue({ results: [page] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [page] });
 
       const shifts = await service.getShiftsByDate('2026-04-20');
 
-      expect(mockClient.databases.query).toHaveBeenCalledWith({
-        database_id: 'oncall-db-id',
+      expect(mockClient.dataSources.query).toHaveBeenCalledWith({
+        data_source_id: 'oncall-db-id',
         filter: {
           property: 'Shift Dates',
           date: { equals: '2026-04-20' },
@@ -164,12 +164,12 @@ describe('NotionService', () => {
   describe('getActiveShift', () => {
     it('should return the active shift', async () => {
       const page = makeShiftPage({ status: 'Active' });
-      mockClient.databases.query.mockResolvedValue({ results: [page] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [page] });
 
       const shift = await service.getActiveShift();
 
-      expect(mockClient.databases.query).toHaveBeenCalledWith({
-        database_id: 'oncall-db-id',
+      expect(mockClient.dataSources.query).toHaveBeenCalledWith({
+        data_source_id: 'oncall-db-id',
         filter: {
           property: 'Status',
           status: { equals: 'Active' },
@@ -180,7 +180,7 @@ describe('NotionService', () => {
     });
 
     it('should return null when no active shift exists', async () => {
-      mockClient.databases.query.mockResolvedValue({ results: [] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [] });
 
       const shift = await service.getActiveShift();
       expect(shift).toBeNull();
@@ -193,12 +193,12 @@ describe('NotionService', () => {
     it('should return scheduled shifts sorted ascending', async () => {
       const page1 = makeShiftPage({ id: 's1', startDate: '2026-04-20' });
       const page2 = makeShiftPage({ id: 's2', startDate: '2026-04-27' });
-      mockClient.databases.query.mockResolvedValue({ results: [page1, page2] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [page1, page2] });
 
       const shifts = await service.getUpcomingShifts();
 
-      expect(mockClient.databases.query).toHaveBeenCalledWith({
-        database_id: 'oncall-db-id',
+      expect(mockClient.dataSources.query).toHaveBeenCalledWith({
+        data_source_id: 'oncall-db-id',
         filter: {
           property: 'Status',
           status: { equals: 'Scheduled' },
@@ -217,12 +217,12 @@ describe('NotionService', () => {
     it('should filter Active+Scheduled shifts by email', async () => {
       const alicePage = makeShiftPage({ personEmail: 'alice@example.com', status: 'Active' });
       const bobPage = makeShiftPage({ id: 's2', personEmail: 'bob@example.com', status: 'Scheduled' });
-      mockClient.databases.query.mockResolvedValue({ results: [alicePage, bobPage] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [alicePage, bobPage] });
 
       const shifts = await service.getShiftsForPerson('alice@example.com');
 
-      expect(mockClient.databases.query).toHaveBeenCalledWith({
-        database_id: 'oncall-db-id',
+      expect(mockClient.dataSources.query).toHaveBeenCalledWith({
+        data_source_id: 'oncall-db-id',
         filter: {
           or: [
             { property: 'Status', status: { equals: 'Active' } },
@@ -235,7 +235,7 @@ describe('NotionService', () => {
     });
 
     it('should return empty array when no shifts match', async () => {
-      mockClient.databases.query.mockResolvedValue({ results: [] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [] });
       const shifts = await service.getShiftsForPerson('nobody@example.com');
       expect(shifts).toEqual([]);
     });
@@ -343,7 +343,7 @@ describe('NotionService', () => {
     it('should return constraints filtered by person email', async () => {
       const aliceConstraint = makeConstraintPage({ personEmail: 'alice@example.com' });
       const bobConstraint = makeConstraintPage({ id: 'c2', personEmail: 'bob@example.com' });
-      mockClient.databases.query.mockResolvedValue({ results: [aliceConstraint, bobConstraint] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [aliceConstraint, bobConstraint] });
 
       const constraints = await service.getConstraintsForPerson('alice@example.com');
 
@@ -370,7 +370,7 @@ describe('NotionService', () => {
         endDate: '2026-05-17',
         status: 'Scheduled',
       });
-      mockClient.databases.query.mockResolvedValue({ results: [overlapping, nonOverlapping] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [overlapping, nonOverlapping] });
 
       const result = await service.getOverlappingShifts('alice@example.com', '2026-05-01', '2026-05-07');
 
@@ -385,7 +385,7 @@ describe('NotionService', () => {
         endDate: '2026-06-08',
         status: 'Active',
       });
-      mockClient.databases.query.mockResolvedValue({ results: [shift] });
+      mockClient.dataSources.query.mockResolvedValue({ results: [shift] });
 
       const result = await service.getOverlappingShifts('alice@example.com', '2026-05-01', '2026-05-07');
       expect(result).toEqual([]);

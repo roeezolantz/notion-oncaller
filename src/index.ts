@@ -82,10 +82,7 @@ http('app', async (req, res) => {
     }
 
     case 'cron': {
-      if (!verifyCronRequest(req)) {
-        res.status(401).json({ error: 'Unauthorized' });
-        return;
-      }
+      // Auth handled by GCP IAM (OIDC token from Cloud Scheduler)
       try {
         await cronHandler.handleDaily();
         res.status(200).json({ status: 'ok' });

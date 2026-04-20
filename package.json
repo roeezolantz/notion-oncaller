@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "gcp-build": "",
     "start": "npx functions-framework --target=app --source=dist/",
     "dev": "tsc -w & npx functions-framework --target=app --source=dist/",
     "test": "jest",
