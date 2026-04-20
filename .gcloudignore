@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.example
+src/
+docs/
+coverage/
+jest.config.js
+tsconfig.json
+*.test.ts
+*.test.js
+*.md
+LICENSE
+.DS_Store
