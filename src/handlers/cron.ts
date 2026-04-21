@@ -91,10 +91,22 @@ export class CronHandler {
   }
 
   private async syncOncallGroup(): Promise<void> {
-    const activeShift = await this.notion.getActiveShift();
+    let activeShift = await this.notion.getActiveShift();
+
+    // If no active shift, check for a scheduled shift that should already be active
     if (!activeShift) {
-      console.log('No active shift found — skipping @oncall sync');
-      return;
+      const today = dayjs().format('YYYY-MM-DD');
+      const upcoming = await this.notion.getUpcomingShifts();
+      const missed = upcoming.find((s) => s.startDate <= today && s.endDate > today);
+
+      if (missed) {
+        console.log(`Found missed shift: ${missed.personName} (${missed.startDate} → ${missed.endDate}) — auto-activating`);
+        await this.notion.updateShiftStatus(missed.id, 'Active');
+        activeShift = missed;
+      } else {
+        console.log('No active shift found — skipping @oncall sync');
+        return;
+      }
     }
 
     const slackUserId = await this.userMapping.getSlackUserId(activeShift.personEmail);
