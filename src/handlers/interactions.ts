@@ -85,21 +85,13 @@ export class InteractionHandler {
     const requesterMention = await this.userMapping.getSlackMention(value.requesterEmail);
     const volunteerMention = `<@${volunteerSlackId}>`;
 
-    // Update the original message to remove the button
+    // Update the original message — no second message needed
     const channelId = payload.channel?.id;
     const messageTs = payload.message?.ts;
+    const doneText = `:white_check_mark: *Swap complete* — ${volunteerMention} is covering ${requesterMention}'s shift (${value.startDate} → ${value.endDate})`;
     if (channelId && messageTs) {
-      await this.slack.updateMessage(
-        channelId,
-        messageTs,
-        `:white_check_mark: *Covered!* ${volunteerMention} is taking over ${requesterMention}'s shift (${value.startDate} → ${value.endDate}).`,
-        [], // empty blocks = removes buttons
-      );
+      await this.slack.updateMessage(channelId, messageTs, doneText, []);
     }
-
-    await this.slack.postToChannel(
-      `:white_check_mark: *Shift swap complete!* ${volunteerMention} is covering ${requesterMention}'s shift (${value.startDate} → ${value.endDate}).`,
-    );
   }
 
   private async handleSwitchApprove(payload: any, value: any): Promise<void> {
