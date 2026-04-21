@@ -165,6 +165,68 @@ export class SlackService {
     ];
   }
 
+  buildReplacementRequestBlocks(requesterName: string, shift: Shift, requestData: string): any[] {
+    return [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*${requesterName}* needs someone to cover their shift:\n:calendar: *${shift.startDate}* → *${shift.endDate}* (${shift.shiftType})`,
+        },
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: "I'll cover", emoji: true },
+            style: 'primary',
+            action_id: 'replacement_accept',
+            value: requestData,
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Cancel', emoji: true },
+            style: 'danger',
+            action_id: 'replacement_cancel',
+            value: requestData,
+          },
+        ],
+      },
+    ];
+  }
+
+  buildSwapRequestBlocks(requesterName: string, shift: Shift, requestData: string): any[] {
+    return [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*${requesterName}* wants to swap their shift:\n:calendar: *${shift.startDate}* → *${shift.endDate}* (${shift.shiftType})\nPropose one of yours:`,
+        },
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Propose my shift', emoji: true },
+            style: 'primary',
+            action_id: 'swap_propose',
+            value: requestData,
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Cancel', emoji: true },
+            style: 'danger',
+            action_id: 'swap_cancel',
+            value: requestData,
+          },
+        ],
+      },
+    ];
+  }
+
   buildConstraintModal(triggerId: string): any {
     return {
       type: 'modal',

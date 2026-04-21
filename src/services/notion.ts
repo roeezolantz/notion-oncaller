@@ -97,6 +97,17 @@ export class NotionService {
     });
   }
 
+  async reassignShift(shiftId: string, newPersonNotionId: string): Promise<void> {
+    await this.client.pages.update({
+      page_id: shiftId,
+      properties: {
+        'On-Call Person': {
+          people: [{ id: newPersonNotionId }],
+        },
+      } as any,
+    });
+  }
+
   async swapShiftPersons(
     shiftAId: string,
     personAId: string,

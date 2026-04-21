@@ -21,6 +21,7 @@ describe('InteractionHandler', () => {
 
     // Default mock implementations
     notion.swapShiftPersons.mockResolvedValue(undefined);
+    notion.reassignShift.mockResolvedValue(undefined);
     notion.createConstraint.mockResolvedValue(undefined);
     notion.getOverlappingShifts.mockResolvedValue([]);
     notion.getShiftsForPerson.mockResolvedValue([]);
@@ -28,20 +29,21 @@ describe('InteractionHandler', () => {
     userMapping.getSlackUserId.mockResolvedValue('U_SOMEONE');
     slack.postToChannel.mockResolvedValue(undefined);
     slack.sendDM.mockResolvedValue(undefined);
+    slack.updateMessage.mockResolvedValue(undefined);
 
     handler = new InteractionHandler(notion, slack, userMapping);
   });
 
-  describe('switch_accept', () => {
-    it('finds volunteer shift, swaps, and posts confirmation', async () => {
+  describe('replacement_accept', () => {
+    it('reassigns shift and updates message', async () => {
       userMapping.getEmailBySlackId = jest.fn().mockResolvedValue('bob@example.com');
       notion.getShiftsForPerson.mockResolvedValue([
         { id: 'vol-shift', personNotionId: 'person-b', status: 'Scheduled' } as any,
       ]);
 
       const value = {
-        shiftAId: 'shift-a',
-        personAId: 'person-a',
+        shiftId: 'shift-a',
+        personId: 'person-a',
         requesterEmail: 'alice@example.com',
         startDate: '2026-05-01',
         endDate: '2026-05-07',
@@ -49,9 +51,11 @@ describe('InteractionHandler', () => {
 
       const payload = {
         user: { id: 'U_VOL' },
+        channel: { id: 'C_ONCALL' },
+        message: { ts: '123.456' },
         actions: [
           {
-            action_id: 'switch_accept',
+            action_id: 'replacement_accept',
             value: JSON.stringify(value),
           },
         ],
@@ -59,35 +63,70 @@ describe('InteractionHandler', () => {
 
       await handler.handleBlockAction(payload);
 
-      expect(notion.swapShiftPersons).toHaveBeenCalledWith(
-        'shift-a', 'person-a', 'vol-shift', 'person-b',
-      );
-      expect(slack.postToChannel).toHaveBeenCalledWith(
+      expect(notion.reassignShift).toHaveBeenCalledWith('shift-a', 'person-b');
+      expect(slack.updateMessage).toHaveBeenCalledWith(
+        'C_ONCALL',
+        '123.456',
         expect.stringContaining('<@U_VOL>'),
+        [],
       );
     });
   });
 
-  describe('switch_approve', () => {
-    it('swaps shifts and notifies both parties via DM', async () => {
-      userMapping.getSlackUserId
-        .mockResolvedValueOnce('U_REQ')   // requester
-        .mockResolvedValueOnce('U_TGT');  // target
+  describe('replacement_cancel', () => {
+    it('updates message with cancellation', async () => {
+      const payload = {
+        user: { id: 'U_REQ' },
+        channel: { id: 'C_ONCALL' },
+        message: { ts: '123.456' },
+        actions: [
+          {
+            action_id: 'replacement_cancel',
+            value: JSON.stringify({}),
+          },
+        ],
+      };
+
+      await handler.handleBlockAction(payload);
+
+      expect(slack.updateMessage).toHaveBeenCalledWith(
+        'C_ONCALL',
+        '123.456',
+        expect.stringContaining('cancelled'),
+        [],
+      );
+    });
+  });
+
+  describe('swap_accept', () => {
+    it('swaps shifts and notifies both parties', async () => {
+      userMapping.getSlackUserId.mockResolvedValue('U_PROPOSER');
+      userMapping.getSlackMention
+        .mockResolvedValueOnce('<@U_PROPOSER>')  // proposerMention
+        .mockResolvedValueOnce('<@U_REQ>');       // requesterMention
 
       const value = {
-        shiftAId: 'shift-a',
-        personAId: 'person-a',
-        shiftBId: 'shift-b',
-        personBId: 'person-b',
+        requesterShiftId: 'shift-a',
+        requesterPersonId: 'person-a',
         requesterEmail: 'alice@example.com',
-        targetEmail: 'bob@example.com',
+        requesterStartDate: '2026-05-01',
+        requesterEndDate: '2026-05-07',
+        proposerShiftId: 'shift-b',
+        proposerPersonId: 'person-b',
+        proposerEmail: 'bob@example.com',
+        proposerStartDate: '2026-05-08',
+        proposerEndDate: '2026-05-14',
+        channelId: 'C_ONCALL',
+        messageTs: '111.222',
       };
 
       const payload = {
-        user: { id: 'U_TGT' },
+        user: { id: 'U_REQ' },
+        channel: { id: 'DM_CHAN' },
+        message: { ts: '999.888' },
         actions: [
           {
-            action_id: 'switch_approve',
+            action_id: 'swap_accept',
             value: JSON.stringify(value),
           },
         ],
@@ -98,31 +137,43 @@ describe('InteractionHandler', () => {
       expect(notion.swapShiftPersons).toHaveBeenCalledWith(
         'shift-a', 'person-a', 'shift-b', 'person-b',
       );
-      expect(slack.sendDM).toHaveBeenCalledWith(
-        'U_REQ',
-        expect.stringContaining('approved'),
+      // DM update
+      expect(slack.updateMessage).toHaveBeenCalledWith(
+        'DM_CHAN',
+        '999.888',
+        expect.stringContaining('Swap complete'),
+        [],
       );
+      // Channel update
+      expect(slack.updateMessage).toHaveBeenCalledWith(
+        'C_ONCALL',
+        '111.222',
+        expect.stringContaining('Swapped'),
+        [],
+      );
+      // DM the proposer
       expect(slack.sendDM).toHaveBeenCalledWith(
-        'U_TGT',
-        expect.stringContaining('approved'),
+        'U_PROPOSER',
+        expect.stringContaining('accepted'),
       );
     });
   });
 
-  describe('switch_decline', () => {
-    it('DMs requester with decline notice', async () => {
-      userMapping.getSlackUserId.mockResolvedValue('U_REQ');
+  describe('swap_decline_proposal', () => {
+    it('updates DM and notifies proposer', async () => {
+      userMapping.getSlackUserId.mockResolvedValue('U_PROPOSER');
 
       const value = {
-        requesterEmail: 'alice@example.com',
-        targetName: 'Bob',
+        proposerEmail: 'bob@example.com',
       };
 
       const payload = {
-        user: { id: 'U_TGT' },
+        user: { id: 'U_REQ' },
+        channel: { id: 'DM_CHAN' },
+        message: { ts: '999.888' },
         actions: [
           {
-            action_id: 'switch_decline',
+            action_id: 'swap_decline_proposal',
             value: JSON.stringify(value),
           },
         ],
@@ -130,13 +181,40 @@ describe('InteractionHandler', () => {
 
       await handler.handleBlockAction(payload);
 
-      expect(slack.sendDM).toHaveBeenCalledWith(
-        'U_REQ',
+      expect(slack.updateMessage).toHaveBeenCalledWith(
+        'DM_CHAN',
+        '999.888',
         expect.stringContaining('declined'),
+        [],
       );
       expect(slack.sendDM).toHaveBeenCalledWith(
-        'U_REQ',
-        expect.stringContaining('Bob'),
+        'U_PROPOSER',
+        expect.stringContaining('declined'),
+      );
+    });
+  });
+
+  describe('swap_cancel', () => {
+    it('updates channel message with cancellation', async () => {
+      const payload = {
+        user: { id: 'U_REQ' },
+        channel: { id: 'C_ONCALL' },
+        message: { ts: '123.456' },
+        actions: [
+          {
+            action_id: 'swap_cancel',
+            value: JSON.stringify({}),
+          },
+        ],
+      };
+
+      await handler.handleBlockAction(payload);
+
+      expect(slack.updateMessage).toHaveBeenCalledWith(
+        'C_ONCALL',
+        '123.456',
+        expect.stringContaining('cancelled'),
+        [],
       );
     });
   });

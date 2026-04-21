@@ -142,7 +142,8 @@ describe('SlackCommandHandler', () => {
       expect(result.text).toContain('list');
       expect(result.text).toContain('mine');
       expect(result.text).toContain('now');
-      expect(result.text).toContain('switch');
+      expect(result.text).toContain('replacement');
+      expect(result.text).toContain('swap');
       expect(result.text).toContain('block');
       expect(result.text).toContain('my-blocks');
       expect(result.text).toContain('help');
@@ -194,25 +195,49 @@ describe('SlackCommandHandler', () => {
     });
   });
 
-  describe('switch', () => {
+  describe('replacement', () => {
     it('returns no shifts message when user has no upcoming shifts', async () => {
       notion.getShiftsForPerson.mockResolvedValue([]);
-      const result = await handler.handle(makePayload({ text: 'switch' }));
+      const result = await handler.handle(makePayload({ text: 'replacement' }));
 
       expect(result.response_type).toBe('ephemeral');
       expect(result.text).toContain('no upcoming shifts');
     });
 
-    it('posts broadcast switch request when user has shifts', async () => {
+    it('opens modal when user has shifts', async () => {
       const shift = makeShift({ status: 'Scheduled' });
       notion.getShiftsForPerson.mockResolvedValue([shift]);
-      (slack.postToChannel as jest.Mock) = jest.fn().mockResolvedValue(undefined);
-      (slack.buildSwitchRequestBlocks as jest.Mock) = jest.fn().mockReturnValue([]);
-      userMapping.getSlackMention.mockResolvedValue('<@U123>');
 
-      const result = await handler.handle(makePayload({ text: 'switch' }));
+      const result = await handler.handle(makePayload({ text: 'replacement' }));
 
-      expect(result.text).toContain('posted to the channel');
+      expect(result.text).toContain('Opening shift picker');
+      expect(slack.openModal).toHaveBeenCalledWith(
+        'trigger-abc',
+        expect.objectContaining({ callback_id: 'replacement_select_shift' }),
+      );
+    });
+  });
+
+  describe('swap', () => {
+    it('returns no shifts message when user has no upcoming shifts', async () => {
+      notion.getShiftsForPerson.mockResolvedValue([]);
+      const result = await handler.handle(makePayload({ text: 'swap' }));
+
+      expect(result.response_type).toBe('ephemeral');
+      expect(result.text).toContain('no upcoming shifts');
+    });
+
+    it('opens modal when user has shifts', async () => {
+      const shift = makeShift({ status: 'Scheduled' });
+      notion.getShiftsForPerson.mockResolvedValue([shift]);
+
+      const result = await handler.handle(makePayload({ text: 'swap' }));
+
+      expect(result.text).toContain('Opening shift picker');
+      expect(slack.openModal).toHaveBeenCalledWith(
+        'trigger-abc',
+        expect.objectContaining({ callback_id: 'swap_select_shift' }),
+      );
     });
   });
 

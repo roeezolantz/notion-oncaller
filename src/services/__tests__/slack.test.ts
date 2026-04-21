@@ -251,6 +251,46 @@ describe('SlackService', () => {
     });
   });
 
+  describe('buildReplacementRequestBlocks', () => {
+    it('builds blocks with requester name, shift details, and cover/cancel buttons', () => {
+      const shift = makeShift();
+      const blocks = service.buildReplacementRequestBlocks('Alice', shift, 'req-r1');
+
+      expect(blocks).toHaveLength(2);
+
+      const section = blocks[0];
+      expect(section.type).toBe('section');
+      expect(section.text.text).toContain('Alice');
+      expect(section.text.text).toContain('2026-04-20');
+
+      const actions = blocks[1];
+      expect(actions.type).toBe('actions');
+      expect(actions.elements[0].action_id).toBe('replacement_accept');
+      expect(actions.elements[0].value).toBe('req-r1');
+      expect(actions.elements[1].action_id).toBe('replacement_cancel');
+    });
+  });
+
+  describe('buildSwapRequestBlocks', () => {
+    it('builds blocks with requester name, shift details, and propose/cancel buttons', () => {
+      const shift = makeShift();
+      const blocks = service.buildSwapRequestBlocks('Alice', shift, 'req-s1');
+
+      expect(blocks).toHaveLength(2);
+
+      const section = blocks[0];
+      expect(section.type).toBe('section');
+      expect(section.text.text).toContain('Alice');
+      expect(section.text.text).toContain('swap');
+
+      const actions = blocks[1];
+      expect(actions.type).toBe('actions');
+      expect(actions.elements[0].action_id).toBe('swap_propose');
+      expect(actions.elements[0].value).toBe('req-s1');
+      expect(actions.elements[1].action_id).toBe('swap_cancel');
+    });
+  });
+
   describe('buildConstraintModal', () => {
     it('returns a modal with correct callback_id and input blocks', () => {
       const modal = service.buildConstraintModal('trigger-xyz');
