@@ -11,7 +11,16 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "deploy": "bash deploy/deploy.sh",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test:coverage": "jest --coverage"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/roeezolantz/notion-oncaller.git"
+  },
+  "homepage": "https://github.com/roeezolantz/notion-oncaller#readme",
+  "bugs": {
+    "url": "https://github.com/roeezolantz/notion-oncaller/issues"
   },
   "keywords": [
     "notion",

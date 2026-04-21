@@ -4,7 +4,7 @@ export const config = {
     oncallDbId: process.env.NOTION_ONCALL_DB_ID || '',
     constraintsDbId: process.env.NOTION_CONSTRAINTS_DB_ID || '',
     constraintsPageId: process.env.NOTION_CONSTRAINTS_PAGE_ID || '',
-    scheduleUrl: process.env.NOTION_SCHEDULE_URL || 'https://www.notion.so/fhenix/3478471c7c228067a881e566217b2688',
+    scheduleUrl: process.env.NOTION_SCHEDULE_URL || '',
   },
   slack: {
     botToken: process.env.SLACK_BOT_TOKEN || '',
