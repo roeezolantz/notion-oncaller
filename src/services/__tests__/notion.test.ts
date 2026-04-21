@@ -82,7 +82,7 @@ describe('NotionService', () => {
   let mockClient: any;
 
   beforeEach(() => {
-    service = new NotionService('test-api-key', 'oncall-db-id', 'constraints-db-id');
+    service = new NotionService('test-api-key', 'oncall-db-id', 'constraints-db-id', 'constraints-page-id');
     // Access the internal client via the mock
     mockClient = (service as any).client;
   });
@@ -315,7 +315,7 @@ describe('NotionService', () => {
       await service.createConstraint('person-1', 'Alice', '2026-05-01', '2026-05-07', 'Vacation');
 
       expect(mockClient.pages.create).toHaveBeenCalledWith({
-        parent: { database_id: 'constraints-db-id' },
+        parent: { database_id: 'constraints-page-id' },
         properties: {
           Title: {
             title: [{ text: { content: 'Alice - Constraint' } }],

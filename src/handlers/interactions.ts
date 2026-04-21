@@ -14,7 +14,17 @@ export class InteractionHandler {
     if (!action) return;
 
     const actionId = action.action_id;
-    const value = JSON.parse(action.value);
+
+    // Skip URL buttons (view_schedule etc.) — they have no value to parse
+    if (!action.value || actionId.startsWith('view_')) return;
+
+    let value: any;
+    try {
+      value = JSON.parse(action.value);
+    } catch {
+      console.error('Failed to parse action value:', action.value);
+      return;
+    }
 
     switch (actionId) {
       case 'switch_accept':
@@ -25,6 +35,9 @@ export class InteractionHandler {
         break;
       case 'switch_decline':
         await this.handleSwitchDecline(payload, value);
+        break;
+      case 'switch_request_from_reminder':
+        await this.handleSwitchFromReminder(payload, value);
         break;
     }
   }
@@ -41,19 +54,36 @@ export class InteractionHandler {
 
   private async handleSwitchAccept(payload: any, value: any): Promise<void> {
     const volunteerSlackId = payload.user.id;
+    const volunteerEmail = await this.userMapping.getEmailBySlackId(volunteerSlackId);
+
+    if (!volunteerEmail) {
+      await this.slack.sendDM(volunteerSlackId, 'Could not find your Notion account. Cannot complete the swap.');
+      return;
+    }
+
+    // Find volunteer's next upcoming shift
+    const volunteerShifts = await this.notion.getShiftsForPerson(volunteerEmail);
+    const volunteerUpcoming = volunteerShifts.filter((s) => s.status === 'Scheduled');
+
+    if (volunteerUpcoming.length === 0) {
+      await this.slack.sendDM(volunteerSlackId, 'You have no upcoming shifts to swap. Cannot complete the swap.');
+      return;
+    }
+
+    const volunteerShift = volunteerUpcoming[0];
 
     await this.notion.swapShiftPersons(
       value.shiftAId,
       value.personAId,
-      value.shiftBId,
-      value.personBId,
+      volunteerShift.id,
+      volunteerShift.personNotionId,
     );
 
     const requesterMention = await this.userMapping.getSlackMention(value.requesterEmail);
     const volunteerMention = `<@${volunteerSlackId}>`;
 
     await this.slack.postToChannel(
-      `${volunteerMention} has agreed to cover ${requesterMention}'s shift (${value.startDate} → ${value.endDate}). Swap complete!`,
+      `:white_check_mark: *Shift swap complete!* ${volunteerMention} is covering ${requesterMention}'s shift (${value.startDate} → ${value.endDate}).`,
     );
   }
 
@@ -92,6 +122,33 @@ export class InteractionHandler {
         `Your shift swap request was declined by ${value.targetName}.`,
       );
     }
+  }
+
+  private async handleSwitchFromReminder(payload: any, value: any): Promise<void> {
+    // User clicked "Request Switch" from a reminder DM — broadcast to channel
+    const userSlackId = payload.user.id;
+    const email = await this.userMapping.getEmailBySlackId(userSlackId);
+    if (!email) return;
+
+    const shifts = await this.notion.getShiftsForPerson(email);
+    const shift = shifts.find((s) => s.id === value.shiftId);
+    if (!shift) {
+      await this.slack.sendDM(userSlackId, 'Could not find that shift.');
+      return;
+    }
+
+    const mention = await this.userMapping.getSlackMention(email);
+    const requestData = JSON.stringify({
+      shiftAId: shift.id,
+      personAId: shift.personNotionId,
+      requesterEmail: email,
+      startDate: shift.startDate,
+      endDate: shift.endDate,
+    });
+
+    const blocks = this.slack.buildSwitchRequestBlocks(shift.personName, shift, requestData);
+    await this.slack.postToChannel(`${mention} needs someone to cover their shift`, blocks);
+    await this.slack.sendDM(userSlackId, ':white_check_mark: Switch request posted to the channel.');
   }
 
   private async handleAddConstraint(payload: any): Promise<void> {

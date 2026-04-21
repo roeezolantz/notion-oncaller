@@ -40,7 +40,7 @@ describe('CronHandler', () => {
   let userMapping: jest.Mocked<UserMappingService>;
 
   beforeEach(() => {
-    notion = new NotionService('' as any, '', '') as jest.Mocked<NotionService>;
+    notion = new NotionService('' as any, '', '', '') as jest.Mocked<NotionService>;
     slack = new SlackService(null as any, '', '') as jest.Mocked<SlackService>;
     userMapping = new UserMappingService(null as any) as jest.Mocked<UserMappingService>;
 

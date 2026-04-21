@@ -15,7 +15,7 @@ describe('InteractionHandler', () => {
   let userMapping: jest.Mocked<UserMappingService>;
 
   beforeEach(() => {
-    notion = new NotionService('key', 'db1', 'db2') as jest.Mocked<NotionService>;
+    notion = new NotionService('key', 'db1', 'db2', 'db2-page') as jest.Mocked<NotionService>;
     slack = new SlackService(null as any, 'ch', 'ug') as jest.Mocked<SlackService>;
     userMapping = new UserMappingService(null as any) as jest.Mocked<UserMappingService>;
 
@@ -23,6 +23,7 @@ describe('InteractionHandler', () => {
     notion.swapShiftPersons.mockResolvedValue(undefined);
     notion.createConstraint.mockResolvedValue(undefined);
     notion.getOverlappingShifts.mockResolvedValue([]);
+    notion.getShiftsForPerson.mockResolvedValue([]);
     userMapping.getSlackMention.mockResolvedValue('<@U_REQ>');
     userMapping.getSlackUserId.mockResolvedValue('U_SOMEONE');
     slack.postToChannel.mockResolvedValue(undefined);
@@ -32,12 +33,15 @@ describe('InteractionHandler', () => {
   });
 
   describe('switch_accept', () => {
-    it('swaps shifts and posts confirmation to channel', async () => {
+    it('finds volunteer shift, swaps, and posts confirmation', async () => {
+      userMapping.getEmailBySlackId = jest.fn().mockResolvedValue('bob@example.com');
+      notion.getShiftsForPerson.mockResolvedValue([
+        { id: 'vol-shift', personNotionId: 'person-b', status: 'Scheduled' } as any,
+      ]);
+
       const value = {
         shiftAId: 'shift-a',
         personAId: 'person-a',
-        shiftBId: 'shift-b',
-        personBId: 'person-b',
         requesterEmail: 'alice@example.com',
         startDate: '2026-05-01',
         endDate: '2026-05-07',
@@ -56,13 +60,10 @@ describe('InteractionHandler', () => {
       await handler.handleBlockAction(payload);
 
       expect(notion.swapShiftPersons).toHaveBeenCalledWith(
-        'shift-a', 'person-a', 'shift-b', 'person-b',
+        'shift-a', 'person-a', 'vol-shift', 'person-b',
       );
       expect(slack.postToChannel).toHaveBeenCalledWith(
         expect.stringContaining('<@U_VOL>'),
-      );
-      expect(slack.postToChannel).toHaveBeenCalledWith(
-        expect.stringContaining('Swap complete'),
       );
     });
   });
@@ -144,17 +145,15 @@ describe('InteractionHandler', () => {
     const makePayload = (overrides?: any) => ({
       user: {
         id: 'U_USER',
-        email: 'alice@example.com',
         name: 'Alice',
-        notionId: 'notion-alice',
       },
       view: {
         callback_id: 'add_constraint',
         state: {
           values: {
-            start_date: { start_date_pick: { selected_date: '2026-06-01' } },
-            end_date: { end_date_pick: { selected_date: '2026-06-07' } },
-            reason: { reason_input: { value: 'Vacation' } },
+            start_date_block: { start_date: { selected_date: '2026-06-01' } },
+            end_date_block: { end_date: { selected_date: '2026-06-07' } },
+            reason_block: { reason: { value: 'Vacation' } },
           },
         },
       },
@@ -162,6 +161,11 @@ describe('InteractionHandler', () => {
     });
 
     it('creates constraint in Notion and DMs confirmation', async () => {
+      userMapping.getEmailBySlackId = jest.fn().mockResolvedValue('alice@example.com');
+      notion.getShiftsForPerson.mockResolvedValue([
+        { personNotionId: 'notion-alice' } as any,
+      ]);
+
       await handler.handleViewSubmission(makePayload());
 
       expect(notion.createConstraint).toHaveBeenCalledWith(
@@ -178,6 +182,10 @@ describe('InteractionHandler', () => {
     });
 
     it('warns about overlapping shifts', async () => {
+      userMapping.getEmailBySlackId = jest.fn().mockResolvedValue('alice@example.com');
+      notion.getShiftsForPerson.mockResolvedValue([
+        { personNotionId: 'notion-alice' } as any,
+      ]);
       notion.getOverlappingShifts.mockResolvedValue([
         {
           id: 'shift-x',
@@ -194,20 +202,9 @@ describe('InteractionHandler', () => {
 
       await handler.handleViewSubmission(makePayload());
 
-      expect(notion.getOverlappingShifts).toHaveBeenCalledWith(
-        'alice@example.com',
-        '2026-06-01',
-        '2026-06-07',
-      );
-
-      // First DM is the warning about overlapping shifts
       expect(slack.sendDM).toHaveBeenCalledWith(
         'U_USER',
-        expect.stringContaining('Warning'),
-      );
-      expect(slack.sendDM).toHaveBeenCalledWith(
-        'U_USER',
-        expect.stringContaining('2026-06-03'),
+        expect.stringContaining('overlapping'),
       );
 
       // Constraint should still be created

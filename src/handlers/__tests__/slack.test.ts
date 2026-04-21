@@ -195,18 +195,24 @@ describe('SlackCommandHandler', () => {
   });
 
   describe('switch', () => {
-    it('returns deferred response', async () => {
+    it('returns no shifts message when user has no upcoming shifts', async () => {
+      notion.getShiftsForPerson.mockResolvedValue([]);
       const result = await handler.handle(makePayload({ text: 'switch' }));
 
       expect(result.response_type).toBe('ephemeral');
-      expect(result.text).toBe('Working on it...');
+      expect(result.text).toContain('no upcoming shifts');
     });
 
-    it('returns deferred response for switch @user', async () => {
-      const result = await handler.handle(makePayload({ text: 'switch @bob' }));
+    it('posts broadcast switch request when user has shifts', async () => {
+      const shift = makeShift({ status: 'Scheduled' });
+      notion.getShiftsForPerson.mockResolvedValue([shift]);
+      (slack.postToChannel as jest.Mock) = jest.fn().mockResolvedValue(undefined);
+      (slack.buildSwitchRequestBlocks as jest.Mock) = jest.fn().mockReturnValue([]);
+      userMapping.getSlackMention.mockResolvedValue('<@U123>');
 
-      expect(result.response_type).toBe('ephemeral');
-      expect(result.text).toBe('Working on it...');
+      const result = await handler.handle(makePayload({ text: 'switch' }));
+
+      expect(result.text).toContain('posted to the channel');
     });
   });
 
