@@ -17,6 +17,15 @@ export class CronHandler {
     const tomorrow = dayjs().add(1, 'day').format('YYYY-MM-DD');
     const inSevenDays = dayjs().add(7, 'day').format('YYYY-MM-DD');
 
+    // Always sync @oncall group with current active shift in Notion
+    try {
+      await this.syncOncallGroup();
+    } catch (err) {
+      console.error('Oncall group sync error:', err);
+    }
+
+    await sleep(500);
+
     try {
       await this.handleShiftChange(today);
     } catch (err) {
@@ -79,6 +88,23 @@ export class CronHandler {
       ];
       await this.slack.postToChannel(text, blocks);
     }
+  }
+
+  private async syncOncallGroup(): Promise<void> {
+    const activeShift = await this.notion.getActiveShift();
+    if (!activeShift) {
+      console.log('No active shift found — skipping @oncall sync');
+      return;
+    }
+
+    const slackUserId = await this.userMapping.getSlackUserId(activeShift.personEmail);
+    if (!slackUserId) {
+      console.log(`Could not find Slack user for ${activeShift.personEmail} — skipping @oncall sync`);
+      return;
+    }
+
+    console.log(`Syncing @oncall group to ${activeShift.personName} (${slackUserId})`);
+    await this.slack.updateOncallGroup(slackUserId);
   }
 
   private async handleReminder(date: string, label: string): Promise<void> {

@@ -93,12 +93,13 @@ describe('CronHandler', () => {
       );
     });
 
-    it('does nothing when no shift starts today', async () => {
+    it('does nothing when no shift starts today (besides sync)', async () => {
       notion.getShiftsByDate.mockResolvedValue([]);
+      notion.getActiveShift.mockResolvedValue(null);
 
       await handler.handleDaily();
 
-      expect(notion.getActiveShift).not.toHaveBeenCalled();
+      // getActiveShift is called by syncOncallGroup, but no shift change happens
       expect(notion.updateShiftStatus).not.toHaveBeenCalled();
       expect(slack.postToChannel).not.toHaveBeenCalled();
     });
