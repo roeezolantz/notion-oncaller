@@ -39,8 +39,8 @@ export function verifySlackRequest(req: any): boolean {
   const signature = req.headers['x-slack-signature'];
   if (!timestamp || !signature) return false;
 
-  const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300;
-  if (parseInt(timestamp) < fiveMinutesAgo) return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - parseInt(timestamp, 10)) > 300) return false;
 
   const sigBasestring = `v0:${timestamp}:${req.rawBody}`;
   const mySignature =
@@ -82,9 +82,14 @@ http('app', async (req, res) => {
     }
 
     case 'cron': {
-      // Auth handled by GCP IAM (OIDC token from Cloud Scheduler)
+      if (!verifyCronRequest(req)) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      console.log('Cron triggered. DB ID:', config.notion.oncallDbId);
       try {
         await cronHandler.handleDaily();
+        console.log('Cron completed successfully');
         res.status(200).json({ status: 'ok' });
       } catch (err) {
         console.error('Cron handler error:', err);

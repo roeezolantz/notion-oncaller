@@ -15,6 +15,7 @@ export class NotionService {
   // --- Shifts ---
 
   async getShiftsByDate(date: string): Promise<Shift[]> {
+    console.log(`Querying shifts for date: ${date}, data_source_id: ${this.oncallDbId}`);
     const response = await this.client.dataSources.query({
       data_source_id: this.oncallDbId,
       filter: {
@@ -24,6 +25,7 @@ export class NotionService {
         },
       },
     });
+    console.log(`Found ${response.results.length} shifts for ${date}`);
     return response.results.map((page: any) => this.parseShift(page));
   }
 

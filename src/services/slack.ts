@@ -18,6 +18,7 @@ export class SlackService {
     await this.client.chat.postMessage({
       channel: this.channelId,
       text,
+      icon_emoji: ':slack_call:',
       ...(blocks && { blocks }),
     });
   }
@@ -40,6 +41,7 @@ export class SlackService {
     await this.client.chat.postMessage({
       channel: dmChannelId,
       text,
+      icon_emoji: ':slack_call:',
       ...(blocks && { blocks }),
     });
   }

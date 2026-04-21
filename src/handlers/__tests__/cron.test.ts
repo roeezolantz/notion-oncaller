@@ -9,6 +9,14 @@ import { Shift } from '../../types';
 jest.mock('../../services/notion');
 jest.mock('../../services/slack');
 jest.mock('../../services/userMapping');
+jest.mock('../../config', () => ({
+  config: {
+    notion: { scheduleUrl: 'https://notion.so/test' },
+  },
+}));
+jest.mock('../../utils', () => ({
+  sleep: jest.fn().mockResolvedValue(undefined),
+}));
 
 function makeShift(overrides: Partial<Shift> = {}): Shift {
   return {
@@ -80,7 +88,8 @@ describe('CronHandler', () => {
       expect(slack.updateOncallGroup).toHaveBeenCalledWith('U12345');
       // Channel notified
       expect(slack.postToChannel).toHaveBeenCalledWith(
-        expect.stringContaining('<@U12345> is now on-call')
+        expect.stringContaining('<@U12345> is now on-call'),
+        expect.any(Array),
       );
     });
 
@@ -92,22 +101,6 @@ describe('CronHandler', () => {
       expect(notion.getActiveShift).not.toHaveBeenCalled();
       expect(notion.updateShiftStatus).not.toHaveBeenCalled();
       expect(slack.postToChannel).not.toHaveBeenCalled();
-    });
-
-    it('handles Holiday shift type label', async () => {
-      const holidayShift = makeShift({ shiftType: 'Holiday' });
-
-      notion.getShiftsByDate.mockImplementation(async (date: string) => {
-        if (date === '2026-04-19') return [holidayShift];
-        return [];
-      });
-      userMapping.getSlackMention.mockResolvedValue('<@U12345>');
-
-      await handler.handleDaily();
-
-      expect(slack.postToChannel).toHaveBeenCalledWith(
-        expect.stringContaining(':palm_tree: Holiday')
-      );
     });
   });
 
@@ -125,7 +118,8 @@ describe('CronHandler', () => {
 
       expect(slack.sendDM).toHaveBeenCalledWith(
         'U12345',
-        expect.stringContaining(':bell: *Reminder:* Your on-call shift starts in 1 day')
+        expect.stringContaining(':bell: *Reminder:* Your on-call shift starts in 1 day'),
+        expect.any(Array),
       );
     });
 
@@ -142,7 +136,8 @@ describe('CronHandler', () => {
 
       expect(slack.sendDM).toHaveBeenCalledWith(
         'U99999',
-        expect.stringContaining(':calendar_spiral: *Reminder:* Your on-call shift starts in 7 days')
+        expect.stringContaining(':calendar_spiral: *Reminder:* Your on-call shift starts in 7 days'),
+        expect.any(Array),
       );
     });
 

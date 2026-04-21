@@ -143,8 +143,8 @@ describe('SlackCommandHandler', () => {
       expect(result.text).toContain('mine');
       expect(result.text).toContain('now');
       expect(result.text).toContain('switch');
-      expect(result.text).toContain('add-constraint');
-      expect(result.text).toContain('my-constraints');
+      expect(result.text).toContain('block');
+      expect(result.text).toContain('my-blocks');
       expect(result.text).toContain('help');
     });
   });
@@ -159,13 +159,13 @@ describe('SlackCommandHandler', () => {
     });
   });
 
-  // 6. "add-constraint" opens a modal
-  describe('add-constraint', () => {
+  // 6. "block" opens a modal
+  describe('block', () => {
     it('opens a modal and returns acknowledgment', async () => {
-      const result = await handler.handle(makePayload({ text: 'add-constraint', trigger_id: 'trigger-xyz' }));
+      const result = await handler.handle(makePayload({ text: 'block', trigger_id: 'trigger-xyz' }));
 
       expect(result.response_type).toBe('ephemeral');
-      expect(result.text).toContain('Opening constraint form');
+      expect(result.text).toContain('Opening block dates form');
       expect(slack.buildConstraintModal).toHaveBeenCalledWith('trigger-xyz');
       expect(slack.openModal).toHaveBeenCalledWith('trigger-xyz', { type: 'modal', callback_id: 'add_constraint' });
     });
@@ -210,24 +210,24 @@ describe('SlackCommandHandler', () => {
     });
   });
 
-  describe('my-constraints', () => {
-    it('returns constraints for the calling user', async () => {
+  describe('my-blocks', () => {
+    it('returns blocked dates for the calling user', async () => {
       const constraints = [makeConstraint()];
       notion.getConstraintsForPerson.mockResolvedValue(constraints);
 
-      const result = await handler.handle(makePayload({ text: 'my-constraints' }));
+      const result = await handler.handle(makePayload({ text: 'my-blocks' }));
 
       expect(result.response_type).toBe('ephemeral');
       expect(result.text).toContain('2026-05-01');
       expect(result.text).toContain('Vacation');
     });
 
-    it('returns message when no constraints found', async () => {
+    it('returns message when no blocked dates found', async () => {
       notion.getConstraintsForPerson.mockResolvedValue([]);
 
-      const result = await handler.handle(makePayload({ text: 'my-constraints' }));
+      const result = await handler.handle(makePayload({ text: 'my-blocks' }));
 
-      expect(result.text).toContain('no active constraints');
+      expect(result.text).toContain('no blocked dates');
     });
   });
 

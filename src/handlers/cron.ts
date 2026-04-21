@@ -2,6 +2,8 @@ import dayjs from 'dayjs';
 import { NotionService } from '../services/notion';
 import { SlackService } from '../services/slack';
 import { UserMappingService } from '../services/userMapping';
+import { config } from '../config';
+import { sleep } from '../utils';
 
 export class CronHandler {
   constructor(
@@ -15,31 +17,67 @@ export class CronHandler {
     const tomorrow = dayjs().add(1, 'day').format('YYYY-MM-DD');
     const inSevenDays = dayjs().add(7, 'day').format('YYYY-MM-DD');
 
-    await this.handleShiftChange(today);
-    await this.handleReminder(tomorrow, '1 day');
-    await this.handleReminder(inSevenDays, '7 days');
+    try {
+      await this.handleShiftChange(today);
+    } catch (err) {
+      console.error('Shift change error:', err);
+    }
+
+    await sleep(500);
+
+    try {
+      await this.handleReminder(tomorrow, '1 day');
+    } catch (err) {
+      console.error('1-day reminder error:', err);
+    }
+
+    await sleep(500);
+
+    try {
+      await this.handleReminder(inSevenDays, '7 days');
+    } catch (err) {
+      console.error('7-day reminder error:', err);
+    }
   }
 
   private async handleShiftChange(today: string): Promise<void> {
     const newShifts = await this.notion.getShiftsByDate(today);
     if (newShifts.length === 0) return;
 
+    await sleep(400);
     const activeShift = await this.notion.getActiveShift();
     if (activeShift) {
+      await sleep(400);
       await this.notion.updateShiftStatus(activeShift.id, 'Completed');
     }
 
     for (const shift of newShifts) {
+      await sleep(400);
       await this.notion.updateShiftStatus(shift.id, 'Active');
       const slackUserId = await this.userMapping.getSlackUserId(shift.personEmail);
       if (slackUserId) {
         await this.slack.updateOncallGroup(slackUserId);
       }
       const mention = await this.userMapping.getSlackMention(shift.personEmail);
-      const typeLabel = shift.shiftType === 'Holiday' ? ':palm_tree: Holiday' : ':calendar: Regular';
-      await this.slack.postToChannel(
-        `:rotating_light: *On-call shift change!* ${mention} is now on-call until ${shift.endDate} (${typeLabel})`
-      );
+      const text = `:telephone_receiver: *On-call update* — ${mention} is now on-call until ${shift.endDate}`;
+      const blocks = [
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text },
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: ':spiral_calendar_pad: View Full Schedule' },
+              url: config.notion.scheduleUrl,
+              action_id: 'view_schedule',
+            },
+          ],
+        },
+      ];
+      await this.slack.postToChannel(text, blocks);
     }
   }
 
@@ -49,10 +87,32 @@ export class CronHandler {
       const slackUserId = await this.userMapping.getSlackUserId(shift.personEmail);
       if (!slackUserId) continue;
       const emoji = label === '1 day' ? ':bell:' : ':calendar_spiral:';
-      await this.slack.sendDM(
-        slackUserId,
-        `${emoji} *Reminder:* Your on-call shift starts in ${label} (${shift.startDate} → ${shift.endDate}).`
-      );
+      const text = `${emoji} *Reminder:* Your on-call shift starts in ${label} (${shift.startDate} → ${shift.endDate}).`;
+      const blocks = [
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text },
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: ':arrows_counterclockwise: Request Switch' },
+              style: 'primary' as const,
+              action_id: 'switch_request_from_reminder',
+              value: JSON.stringify({ shiftId: shift.id, personId: shift.personNotionId }),
+            },
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: ':spiral_calendar_pad: View Schedule' },
+              url: config.notion.scheduleUrl,
+              action_id: 'view_schedule_reminder',
+            },
+          ],
+        },
+      ];
+      await this.slack.sendDM(slackUserId, text, blocks);
     }
   }
 }

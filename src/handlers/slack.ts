@@ -37,10 +37,10 @@ export class SlackCommandHandler {
         return this.handleNow();
       case 'switch':
         return this.handleSwitch();
-      case 'add-constraint':
-        return this.handleAddConstraint(payload.trigger_id);
-      case 'my-constraints':
-        return this.handleMyConstraints(payload.user_id);
+      case 'block':
+        return this.handleBlock(payload.trigger_id);
+      case 'my-blocks':
+        return this.handleMyBlocks(payload.user_id);
       case 'help':
         return this.handleHelp();
       default:
@@ -112,17 +112,17 @@ export class SlackCommandHandler {
     };
   }
 
-  private async handleAddConstraint(triggerId: string): Promise<SlashCommandResponse> {
+  private async handleBlock(triggerId: string): Promise<SlashCommandResponse> {
     const modal = this.slack.buildConstraintModal(triggerId);
     await this.slack.openModal(triggerId, modal);
 
     return {
       response_type: 'ephemeral',
-      text: 'Opening constraint form...',
+      text: 'Opening block dates form...',
     };
   }
 
-  private async handleMyConstraints(slackUserId: string): Promise<SlashCommandResponse> {
+  private async handleMyBlocks(slackUserId: string): Promise<SlashCommandResponse> {
     const email = await this.userMapping.getEmailBySlackId(slackUserId);
     if (!email) {
       return {
@@ -136,17 +136,17 @@ export class SlackCommandHandler {
     if (constraints.length === 0) {
       return {
         response_type: 'ephemeral',
-        text: 'You have no active constraints.',
+        text: 'You have no blocked dates.',
       };
     }
 
     const lines = constraints.map(
-      (c) => `- *${c.startDate}* to *${c.endDate}*${c.reason ? ` — ${c.reason}` : ''} (${c.status})`,
+      (c) => `- *${c.startDate}* to *${c.endDate}*${c.reason ? ` — ${c.reason}` : ''}`,
     );
 
     return {
       response_type: 'ephemeral',
-      text: `Your Constraints:\n${lines.join('\n')}`,
+      text: `:no_entry_sign: *Your Blocked Dates:*\n${lines.join('\n')}`,
     };
   }
 
@@ -158,8 +158,8 @@ export class SlackCommandHandler {
       '`now` — Show who is currently on-call',
       '`switch` — Request a shift switch',
       '`switch @user` — Request a direct shift switch with someone',
-      '`add-constraint` — Add a date constraint (unavailability)',
-      '`my-constraints` — Show your active constraints',
+      '`block` — Block out dates you\'re unavailable',
+      '`my-blocks` — Show your blocked dates',
       '`help` — Show this command reference',
     ].join('\n');
 

@@ -60,6 +60,7 @@ describe('SlackService', () => {
       expect(mockPostMessage).toHaveBeenCalledWith({
         channel: CHANNEL_ID,
         text: 'Hello oncall',
+        icon_emoji: ':slack_call:',
       });
     });
 
@@ -70,6 +71,7 @@ describe('SlackService', () => {
       expect(mockPostMessage).toHaveBeenCalledWith({
         channel: CHANNEL_ID,
         text: 'fallback',
+        icon_emoji: ':slack_call:',
         blocks,
       });
     });
@@ -107,6 +109,7 @@ describe('SlackService', () => {
       expect(mockPostMessage).toHaveBeenCalledWith({
         channel: 'DM123',
         text: 'Hey there',
+        icon_emoji: ':slack_call:',
       });
     });
 
@@ -117,6 +120,7 @@ describe('SlackService', () => {
       expect(mockPostMessage).toHaveBeenCalledWith({
         channel: 'DM123',
         text: 'fallback',
+        icon_emoji: ':slack_call:',
         blocks,
       });
     });

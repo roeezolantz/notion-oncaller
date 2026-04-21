@@ -8,6 +8,7 @@ FUNCTION_URL="${1:?Usage: setup-scheduler.sh <function-url>}"
 PROJECT_ID="${2:-$(gcloud config get-value project)}"
 REGION="${3:-me-west1}"
 SERVICE_ACCOUNT="${4:-fhenix-monitoring@appspot.gserviceaccount.com}"
+CRON_SECRET="${CRON_SECRET:-notion-oncaller-cron-2026}"
 
 JOB_NAME="notion-oncaller-daily"
 
@@ -25,7 +26,7 @@ gcloud scheduler jobs create http "$JOB_NAME" \
   --time-zone="Asia/Jerusalem" \
   --uri="${FUNCTION_URL}/cron/daily" \
   --http-method=POST \
-  --headers="Content-Type=application/json" \
+  --headers="Content-Type=application/json,x-cron-secret=${CRON_SECRET}" \
   --message-body='{"trigger":"scheduled"}' \
   --attempt-deadline=60s \
   --oidc-service-account-email="$SERVICE_ACCOUNT" \
