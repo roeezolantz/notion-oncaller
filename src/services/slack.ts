@@ -23,6 +23,15 @@ export class SlackService {
     });
   }
 
+  async updateMessage(channelId: string, ts: string, text: string, blocks?: any[]): Promise<void> {
+    await this.client.chat.update({
+      channel: channelId,
+      ts,
+      text,
+      ...(blocks && { blocks }),
+    });
+  }
+
   async postEphemeral(channelId: string, userId: string, text: string, blocks?: any[]): Promise<void> {
     await this.client.chat.postEphemeral({
       channel: channelId,

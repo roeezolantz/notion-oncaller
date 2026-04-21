@@ -23,7 +23,8 @@ gcloud functions deploy "$FUNCTION_NAME" \
   --memory=256MB \
   --timeout=60s \
   --gen2 \
-  --service-account=fhenix-monitoring@appspot.gserviceaccount.com
+  --service-account=fhenix-monitoring@appspot.gserviceaccount.com \
+  --min-instances=1
 
 FUNCTION_URL=$(gcloud functions describe "$FUNCTION_NAME" \
   --project="$PROJECT_ID" \

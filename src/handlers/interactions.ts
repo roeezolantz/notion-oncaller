@@ -82,6 +82,18 @@ export class InteractionHandler {
     const requesterMention = await this.userMapping.getSlackMention(value.requesterEmail);
     const volunteerMention = `<@${volunteerSlackId}>`;
 
+    // Update the original message to remove the button
+    const channelId = payload.channel?.id;
+    const messageTs = payload.message?.ts;
+    if (channelId && messageTs) {
+      await this.slack.updateMessage(
+        channelId,
+        messageTs,
+        `:white_check_mark: *Covered!* ${volunteerMention} is taking over ${requesterMention}'s shift (${value.startDate} → ${value.endDate}).`,
+        [], // empty blocks = removes buttons
+      );
+    }
+
     await this.slack.postToChannel(
       `:white_check_mark: *Shift swap complete!* ${volunteerMention} is covering ${requesterMention}'s shift (${value.startDate} → ${value.endDate}).`,
     );
@@ -95,25 +107,32 @@ export class InteractionHandler {
       value.personBId,
     );
 
+    // Update the DM to remove buttons
+    const channelId = payload.channel?.id;
+    const messageTs = payload.message?.ts;
+    if (channelId && messageTs) {
+      await this.slack.updateMessage(channelId, messageTs, ':white_check_mark: *Swap approved!* Shifts updated.', []);
+    }
+
     const requesterSlackId = await this.userMapping.getSlackUserId(value.requesterEmail);
     const targetSlackId = await this.userMapping.getSlackUserId(value.targetEmail);
 
     if (requesterSlackId) {
-      await this.slack.sendDM(
-        requesterSlackId,
-        `Your shift swap request has been approved! Shifts have been updated.`,
-      );
+      await this.slack.sendDM(requesterSlackId, `:white_check_mark: Your shift swap was approved! Shifts updated.`);
     }
-
     if (targetSlackId) {
-      await this.slack.sendDM(
-        targetSlackId,
-        `You approved the shift swap. Shifts have been updated.`,
-      );
+      await this.slack.sendDM(targetSlackId, `:white_check_mark: You approved the shift swap. Shifts updated.`);
     }
   }
 
   private async handleSwitchDecline(payload: any, value: any): Promise<void> {
+    // Update the DM to remove buttons
+    const channelId = payload.channel?.id;
+    const messageTs = payload.message?.ts;
+    if (channelId && messageTs) {
+      await this.slack.updateMessage(channelId, messageTs, ':x: *Swap declined.*', []);
+    }
+
     const requesterSlackId = await this.userMapping.getSlackUserId(value.requesterEmail);
 
     if (requesterSlackId) {
