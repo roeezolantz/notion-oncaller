@@ -36,7 +36,7 @@ export class SlackCommandHandler {
       case 'now':
         return this.handleNow();
       case 'switch':
-        return this.handleSwitch(payload.user_id, parts.slice(1));
+        return this.handleSwitch(payload.user_id, payload.trigger_id, parts.slice(1));
       case 'block':
         return this.handleBlock(payload.trigger_id);
       case 'my-blocks':
@@ -105,8 +105,7 @@ export class SlackCommandHandler {
     };
   }
 
-  private async handleSwitch(slackUserId: string, args: string[]): Promise<SlashCommandResponse> {
-    // Find the requester's next upcoming shift
+  private async handleSwitch(slackUserId: string, triggerId: string, args: string[]): Promise<SlashCommandResponse> {
     const email = await this.userMapping.getEmailBySlackId(slackUserId);
     if (!email) {
       return { response_type: 'ephemeral', text: 'Could not find your Notion account.' };
@@ -118,74 +117,59 @@ export class SlackCommandHandler {
       return { response_type: 'ephemeral', text: 'You have no upcoming shifts to switch.' };
     }
 
-    const shift = upcoming[0]; // next upcoming shift
-    const mention = await this.userMapping.getSlackMention(email);
-    const targetArg = args[0]; // e.g. "@rogue" or "<@U123>"
-
+    // Extract target if provided: /oncall switch @user
+    const targetArg = args[0];
+    let targetSlackId = '';
     if (targetArg) {
-      // Direct switch — extract Slack user ID from mention like <@U0ABC123> or <@U0ABC123|rogue>
       const match = targetArg.match(/^<@([A-Z0-9]+)(?:\|[^>]*)?>/);
-      const targetSlackId = match ? match[1] : targetArg.replace(/[<@>]/g, '');
-      console.log(`Switch target: raw="${targetArg}" parsed="${targetSlackId}"`);
-      const targetEmail = await this.userMapping.getEmailBySlackId(targetSlackId);
-      console.log(`Switch target email: ${targetEmail}`);
-      if (!targetEmail) {
-        return { response_type: 'ephemeral', text: `Could not find that user's Notion account. (Slack ID: ${targetSlackId})` };
-      }
-
-      const targetShifts = await this.notion.getShiftsForPerson(targetEmail);
-      const targetUpcoming = targetShifts.filter((s) => s.status === 'Scheduled');
-      if (targetUpcoming.length === 0) {
-        return { response_type: 'ephemeral', text: `That person has no upcoming shifts to swap with.` };
-      }
-
-      const targetShift = targetUpcoming[0];
-      const requestData = JSON.stringify({
-        shiftAId: shift.id,
-        personAId: shift.personNotionId,
-        shiftBId: targetShift.id,
-        personBId: targetShift.personNotionId,
-        requesterEmail: email,
-        targetEmail: targetEmail,
-        targetName: targetShift.personName,
-      });
-
-      // DM the target with approve/decline
-      const blocks = this.slack.buildDirectSwitchBlocks(
-        shift.personName,
-        shift,
-        targetShift,
-        requestData,
-      );
-      await this.slack.sendDM(
-        targetSlackId,
-        `${shift.personName} wants to swap shifts with you`,
-        blocks,
-      );
-
-      return { response_type: 'ephemeral', text: `:arrows_counterclockwise: Switch request sent to <@${targetSlackId}>` };
-    } else {
-      // Broadcast switch — post to channel
-      const requestData = JSON.stringify({
-        shiftAId: shift.id,
-        personAId: shift.personNotionId,
-        requesterEmail: email,
-        startDate: shift.startDate,
-        endDate: shift.endDate,
-      });
-
-      const blocks = this.slack.buildSwitchRequestBlocks(
-        shift.personName,
-        shift,
-        requestData,
-      );
-      await this.slack.postToChannel(
-        `${mention} needs someone to cover their shift`,
-        blocks,
-      );
-
-      return { response_type: 'ephemeral', text: ':arrows_counterclockwise: Switch request posted to the channel.' };
+      targetSlackId = match ? match[1] : targetArg.replace(/[<@>]/g, '');
     }
+
+    // Build shift options for the modal dropdown
+    const shiftOptions = upcoming.map((s) => ({
+      text: { type: 'plain_text' as const, text: `${s.startDate} → ${s.endDate} (${s.shiftType})` },
+      value: JSON.stringify({ shiftId: s.id, personId: s.personNotionId, startDate: s.startDate, endDate: s.endDate }),
+    }));
+
+    const modal: any = {
+      type: 'modal',
+      callback_id: 'switch_select_shift',
+      title: { type: 'plain_text', text: 'Switch Shift' },
+      submit: { type: 'plain_text', text: 'Request Switch' },
+      close: { type: 'plain_text', text: 'Cancel' },
+      private_metadata: JSON.stringify({ email, targetSlackId }),
+      blocks: [
+        {
+          type: 'input',
+          block_id: 'shift_select_block',
+          label: { type: 'plain_text', text: 'Which shift do you want to switch?' },
+          element: {
+            type: 'static_select',
+            action_id: 'shift_select',
+            options: shiftOptions,
+            ...(shiftOptions.length === 1 && { initial_option: shiftOptions[0] }),
+          },
+        },
+      ],
+    };
+
+    // If no target specified, add a broadcast/direct choice
+    if (!targetSlackId) {
+      modal.blocks.push({
+        type: 'input',
+        block_id: 'switch_target_block',
+        optional: true,
+        label: { type: 'plain_text', text: 'Swap with someone specific? (leave empty to broadcast)' },
+        element: {
+          type: 'users_select',
+          action_id: 'switch_target',
+          placeholder: { type: 'plain_text', text: 'Select a person (optional)' },
+        },
+      });
+    }
+
+    await this.slack.openModal(triggerId, modal);
+    return { response_type: 'ephemeral', text: 'Opening shift picker...' };
   }
 
   private async handleBlock(triggerId: string): Promise<SlashCommandResponse> {

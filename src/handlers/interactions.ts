@@ -52,6 +52,9 @@ export class InteractionHandler {
       case 'add_constraint':
         await this.handleAddConstraint(payload);
         break;
+      case 'switch_select_shift':
+        await this.handleSwitchSelectShift(payload);
+        break;
     }
   }
 
@@ -135,6 +138,73 @@ export class InteractionHandler {
         requesterSlackId,
         `Your shift swap request was declined by ${value.targetName}.`,
       );
+    }
+  }
+
+  private async handleSwitchSelectShift(payload: any): Promise<void> {
+    const values = payload.view.state.values;
+    const metadata = JSON.parse(payload.view.private_metadata || '{}');
+    const email = metadata.email;
+    let targetSlackId = metadata.targetSlackId;
+
+    const shiftData = JSON.parse(values.shift_select_block.shift_select.selected_option.value);
+    const userSlackId = payload.user.id;
+
+    // Check if user picked a target from the modal
+    if (!targetSlackId && values.switch_target_block?.switch_target?.selected_user) {
+      targetSlackId = values.switch_target_block.switch_target.selected_user;
+    }
+
+    const mention = await this.userMapping.getSlackMention(email);
+
+    if (targetSlackId) {
+      // Direct switch
+      const targetEmail = await this.userMapping.getEmailBySlackId(targetSlackId);
+      if (!targetEmail) {
+        await this.slack.sendDM(userSlackId, `Could not find that user's Notion account.`);
+        return;
+      }
+
+      const targetShifts = await this.notion.getShiftsForPerson(targetEmail);
+      const targetUpcoming = targetShifts.filter((s) => s.status === 'Scheduled');
+      if (targetUpcoming.length === 0) {
+        await this.slack.sendDM(userSlackId, `That person has no upcoming shifts to swap with.`);
+        return;
+      }
+
+      const targetShift = targetUpcoming[0];
+      const personName = (await this.notion.getShiftsForPerson(email)).find(s => s.id === shiftData.shiftId)?.personName || '';
+
+      const requestData = JSON.stringify({
+        shiftAId: shiftData.shiftId,
+        personAId: shiftData.personId,
+        shiftBId: targetShift.id,
+        personBId: targetShift.personNotionId,
+        requesterEmail: email,
+        targetEmail: targetEmail,
+        targetName: targetShift.personName,
+      });
+
+      const blocks = this.slack.buildDirectSwitchBlocks(personName, shiftData as any, targetShift, requestData);
+      await this.slack.sendDM(targetSlackId, `${personName} wants to swap shifts with you`, blocks);
+      await this.slack.sendDM(userSlackId, `:arrows_counterclockwise: Switch request sent to <@${targetSlackId}>`);
+    } else {
+      // Broadcast
+      const requestData = JSON.stringify({
+        shiftAId: shiftData.shiftId,
+        personAId: shiftData.personId,
+        requesterEmail: email,
+        startDate: shiftData.startDate,
+        endDate: shiftData.endDate,
+      });
+
+      const shifts = await this.notion.getShiftsForPerson(email);
+      const shift = shifts.find(s => s.id === shiftData.shiftId);
+      const personName = shift?.personName || '';
+
+      const blocks = this.slack.buildSwitchRequestBlocks(personName, shift || shiftData as any, requestData);
+      await this.slack.postToChannel(`${mention} needs someone to cover their shift`, blocks);
+      await this.slack.sendDM(userSlackId, ':arrows_counterclockwise: Switch request posted to the channel.');
     }
   }
 
