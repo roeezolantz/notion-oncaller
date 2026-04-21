@@ -123,11 +123,14 @@ export class SlackCommandHandler {
     const targetArg = args[0]; // e.g. "@rogue" or "<@U123>"
 
     if (targetArg) {
-      // Direct switch — extract Slack user ID from mention
-      const targetSlackId = targetArg.replace(/[<@>]/g, '');
+      // Direct switch — extract Slack user ID from mention like <@U0ABC123> or <@U0ABC123|rogue>
+      const match = targetArg.match(/^<@([A-Z0-9]+)(?:\|[^>]*)?>/);
+      const targetSlackId = match ? match[1] : targetArg.replace(/[<@>]/g, '');
+      console.log(`Switch target: raw="${targetArg}" parsed="${targetSlackId}"`);
       const targetEmail = await this.userMapping.getEmailBySlackId(targetSlackId);
+      console.log(`Switch target email: ${targetEmail}`);
       if (!targetEmail) {
-        return { response_type: 'ephemeral', text: `Could not find that user's Notion account.` };
+        return { response_type: 'ephemeral', text: `Could not find that user's Notion account. (Slack ID: ${targetSlackId})` };
       }
 
       const targetShifts = await this.notion.getShiftsForPerson(targetEmail);

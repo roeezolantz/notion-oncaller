@@ -122,6 +122,13 @@ export class SlackService {
             action_id: 'switch_accept',
             value: requestId,
           },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Cancel', emoji: true },
+            style: 'danger',
+            action_id: 'switch_cancel',
+            value: requestId,
+          },
         ],
       },
     ];

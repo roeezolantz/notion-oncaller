@@ -36,6 +36,9 @@ export class InteractionHandler {
       case 'switch_decline':
         await this.handleSwitchDecline(payload, value);
         break;
+      case 'switch_cancel':
+        await this.handleSwitchCancel(payload, value);
+        break;
       case 'switch_request_from_reminder':
         await this.handleSwitchFromReminder(payload, value);
         break;
@@ -139,6 +142,21 @@ export class InteractionHandler {
       await this.slack.sendDM(
         requesterSlackId,
         `Your shift swap request was declined by ${value.targetName}.`,
+      );
+    }
+  }
+
+  private async handleSwitchCancel(payload: any, value: any): Promise<void> {
+    const channelId = payload.channel?.id;
+    const messageTs = payload.message?.ts;
+    const cancellerMention = `<@${payload.user.id}>`;
+
+    if (channelId && messageTs) {
+      await this.slack.updateMessage(
+        channelId,
+        messageTs,
+        `:no_entry_sign: Switch request cancelled by ${cancellerMention}.`,
+        [],
       );
     }
   }
