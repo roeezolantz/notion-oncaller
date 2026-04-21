@@ -14,6 +14,7 @@ const notion = new NotionService(
   config.notion.apiKey,
   config.notion.oncallDbId,
   config.notion.constraintsDbId,
+  config.notion.constraintsPageId,
 );
 const slack = new SlackService(
   slackClient,

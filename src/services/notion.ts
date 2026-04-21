@@ -5,11 +5,13 @@ export class NotionService {
   private client: any;
   private oncallDbId: string;
   private constraintsDbId: string;
+  private constraintsPageId: string;
 
-  constructor(apiKey: string, oncallDbId: string, constraintsDbId: string) {
+  constructor(apiKey: string, oncallDbId: string, constraintsDbId: string, constraintsPageId: string) {
     this.client = new Client({ auth: apiKey });
     this.oncallDbId = oncallDbId;
     this.constraintsDbId = constraintsDbId;
+    this.constraintsPageId = constraintsPageId;
   }
 
   // --- Shifts ---
@@ -145,7 +147,7 @@ export class NotionService {
     reason: string,
   ): Promise<void> {
     await this.client.pages.create({
-      parent: { database_id: this.constraintsDbId },
+      parent: { database_id: this.constraintsPageId },
       properties: {
         Title: {
           title: [

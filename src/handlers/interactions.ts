@@ -96,14 +96,29 @@ export class InteractionHandler {
 
   private async handleAddConstraint(payload: any): Promise<void> {
     const values = payload.view.state.values;
-    const startDate = values.start_date.start_date_pick.selected_date;
-    const endDate = values.end_date.end_date_pick.selected_date;
-    const reason = values.reason.reason_input.value || '';
+    console.log('Modal values:', JSON.stringify(values));
+
+    const startDate = values.start_date_block?.start_date?.selected_date;
+    const endDate = values.end_date_block?.end_date?.selected_date;
+    const reason = values.reason_block?.reason?.value || '';
+
+    if (!startDate || !endDate) {
+      console.error('Missing dates in modal submission');
+      return;
+    }
 
     const userSlackId = payload.user.id;
-    const userEmail = payload.user.email;
-    const userName = payload.user.name;
-    const userNotionId = payload.user.notionId;
+    const userEmail = await this.userMapping.getEmailBySlackId(userSlackId);
+    if (!userEmail) {
+      await this.slack.sendDM(userSlackId, 'Could not find your Notion account. Make sure your Slack and Notion emails match.');
+      return;
+    }
+
+    const userName = payload.user.name || payload.user.username || userEmail;
+
+    // Look up Notion user ID from email
+    const notionUsers = await this.notion.getShiftsForPerson(userEmail);
+    const notionPersonId = notionUsers.length > 0 ? notionUsers[0].personNotionId : '';
 
     // Check for overlapping shifts
     const overlapping = await this.notion.getOverlappingShifts(userEmail, startDate, endDate);
@@ -115,12 +130,12 @@ export class InteractionHandler {
 
       await this.slack.sendDM(
         userSlackId,
-        `Warning: You have ${overlapping.length} shift(s) overlapping with your constraint (${shiftDates}). The constraint was still created — please arrange coverage.`,
+        `:warning: You have ${overlapping.length} shift(s) overlapping with your blocked dates (${shiftDates}). The block was still created — please arrange coverage.`,
       );
     }
 
     await this.notion.createConstraint(
-      userNotionId,
+      notionPersonId,
       userName,
       startDate,
       endDate,
@@ -129,7 +144,7 @@ export class InteractionHandler {
 
     await this.slack.sendDM(
       userSlackId,
-      `Your constraint from ${startDate} to ${endDate} has been recorded.`,
+      `:white_check_mark: Blocked dates recorded: ${startDate} → ${endDate}${reason ? ` (${reason})` : ''}`,
     );
   }
 }
