@@ -14,45 +14,67 @@ export class SlackService {
 
   // Core messaging
 
+  private previewText(text: string): string {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    return flat.length > 200 ? `${flat.slice(0, 200)}…` : flat;
+  }
+
   async postToChannel(text: string, blocks?: any[]): Promise<void> {
-    await this.client.chat.postMessage({
+    console.log(
+      `[slack] postToChannel channel=${this.channelId} blocks=${blocks?.length ?? 0} text="${this.previewText(text)}"`,
+    );
+    const res = await this.client.chat.postMessage({
       channel: this.channelId,
       text,
       icon_emoji: ':slack_call:',
       ...(blocks && { blocks }),
     });
+    console.log(`[slack] postToChannel sent ts=${res.ts} channel=${res.channel}`);
   }
 
   async updateMessage(channelId: string, ts: string, text: string, blocks?: any[]): Promise<void> {
+    console.log(
+      `[slack] updateMessage channel=${channelId} ts=${ts} blocks=${blocks?.length ?? 0} text="${this.previewText(text)}"`,
+    );
     await this.client.chat.update({
       channel: channelId,
       ts,
       text,
       ...(blocks && { blocks }),
     });
+    console.log(`[slack] updateMessage done channel=${channelId} ts=${ts}`);
   }
 
   async postEphemeral(channelId: string, userId: string, text: string, blocks?: any[]): Promise<void> {
+    console.log(
+      `[slack] postEphemeral channel=${channelId} user=${userId} blocks=${blocks?.length ?? 0} text="${this.previewText(text)}"`,
+    );
     await this.client.chat.postEphemeral({
       channel: channelId,
       user: userId,
       text,
       ...(blocks && { blocks }),
     });
+    console.log(`[slack] postEphemeral sent channel=${channelId} user=${userId}`);
   }
 
   async sendDM(userId: string, text: string, blocks?: any[]): Promise<void> {
+    console.log(
+      `[slack] sendDM user=${userId} blocks=${blocks?.length ?? 0} text="${this.previewText(text)}"`,
+    );
     const result = await this.client.conversations.open({ users: userId });
     const dmChannelId = result.channel?.id;
     if (!dmChannelId) {
+      console.error(`[slack] sendDM failed to open DM channel user=${userId}`);
       throw new Error(`Failed to open DM channel with user ${userId}`);
     }
-    await this.client.chat.postMessage({
+    const res = await this.client.chat.postMessage({
       channel: dmChannelId,
       text,
       icon_emoji: ':slack_call:',
       ...(blocks && { blocks }),
     });
+    console.log(`[slack] sendDM sent user=${userId} dmChannel=${dmChannelId} ts=${res.ts}`);
   }
 
   async updateOncallGroup(slackUserId: string): Promise<void> {

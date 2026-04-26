@@ -65,7 +65,14 @@ export class CronHandler {
       await this.notion.updateShiftStatus(shift.id, 'Active');
       const slackUserId = await this.userMapping.getSlackUserId(shift.personEmail);
       if (slackUserId) {
+        console.log(
+          `[cron] shift change: activating ${shift.personName} <${shift.personEmail}> slackUser=${slackUserId} until ${shift.endDate}`,
+        );
         await this.slack.updateOncallGroup(slackUserId);
+      } else {
+        console.log(
+          `[cron] shift change: no Slack user mapping for ${shift.personName} <${shift.personEmail}> — channel post will use fallback mention`,
+        );
       }
       const mention = await this.userMapping.getSlackMention(shift.personEmail);
       const text = `:telephone_receiver: *On-call update* — ${mention} is now on-call until ${shift.endDate}`;
@@ -123,7 +130,15 @@ export class CronHandler {
     const shifts = await this.notion.getShiftsByDate(date);
     for (const shift of shifts) {
       const slackUserId = await this.userMapping.getSlackUserId(shift.personEmail);
-      if (!slackUserId) continue;
+      if (!slackUserId) {
+        console.log(
+          `[cron] ${label} reminder: no Slack user mapping for ${shift.personName} <${shift.personEmail}> (shift ${shift.startDate}→${shift.endDate}) — skipping DM`,
+        );
+        continue;
+      }
+      console.log(
+        `[cron] ${label} reminder: DMing ${shift.personName} <${shift.personEmail}> slackUser=${slackUserId} (shift ${shift.startDate}→${shift.endDate})`,
+      );
       const emoji = label === '1 day' ? ':bell:' : ':calendar_spiral:';
       const text = `${emoji} *Reminder:* Your on-call shift starts in ${label} (${shift.startDate} → ${shift.endDate}).`;
       const blocks = [
