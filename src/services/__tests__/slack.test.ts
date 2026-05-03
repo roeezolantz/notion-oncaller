@@ -128,9 +128,7 @@ describe('SlackService', () => {
     it('throws when conversations.open fails to return a channel', async () => {
       mockConversationsOpen.mockResolvedValueOnce({ channel: {} });
 
-      await expect(service.sendDM('U_BAD', 'hi')).rejects.toThrow(
-        'Failed to open DM channel with user U_BAD',
-      );
+      await expect(service.sendDM('U_BAD', 'hi')).rejects.toThrow('Failed to open DM channel with user U_BAD');
     });
   });
 
@@ -311,6 +309,127 @@ describe('SlackService', () => {
       expect(modal.blocks[2].element.type).toBe('plain_text_input');
       expect(modal.blocks[2].element.action_id).toBe('reason');
       expect(modal.blocks[2].optional).toBe(true);
+    });
+  });
+
+  describe('buildBroadcastDMBlocks', () => {
+    const recipient = {
+      slackUserId: 'U_ALICE',
+      personNotionId: 'p1',
+      personEmail: 'alice@example.com',
+      personName: 'Alice',
+      shifts: [
+        makeShift({ id: 's1', startDate: '2026-05-04', endDate: '2026-05-11' }),
+        makeShift({ id: 's2', startDate: '2026-06-15', endDate: '2026-06-22' }),
+      ],
+    };
+
+    it('renders header, bulleted shifts, and View/Replacement/Swap action buttons', () => {
+      const blocks = service.buildBroadcastDMBlocks(recipient, 'https://notion.so/schedule');
+
+      expect(blocks).toHaveLength(3);
+
+      const header = blocks[0];
+      expect(header.type).toBe('section');
+      expect(header.text.text).toContain('updated on-call schedule');
+
+      const list = blocks[1];
+      expect(list.type).toBe('section');
+      expect(list.text.text).toContain('• 2026-05-04 → 2026-05-11');
+      expect(list.text.text).toContain('• 2026-06-15 → 2026-06-22');
+
+      const actions = blocks[2];
+      expect(actions.type).toBe('actions');
+      expect(actions.elements).toHaveLength(3);
+      expect(actions.elements[0].url).toBe('https://notion.so/schedule');
+      expect(actions.elements[1].action_id).toBe('broadcast_request_replacement');
+      expect(actions.elements[2].action_id).toBe('broadcast_request_swap');
+    });
+
+    it('omits the View Full Schedule button when scheduleUrl is empty', () => {
+      const blocks = service.buildBroadcastDMBlocks(recipient, '');
+      const actions = blocks[blocks.length - 1];
+      const urls = actions.elements.filter((e: any) => e.type === 'button' && 'url' in e);
+      expect(urls).toEqual([]);
+    });
+  });
+
+  describe('buildBroadcastPreviewBlocks', () => {
+    const recipientA = {
+      slackUserId: 'U_ALICE',
+      personNotionId: 'p1',
+      personEmail: 'alice@example.com',
+      personName: 'Alice',
+      shifts: [makeShift({ id: 's1', startDate: '2026-05-04', endDate: '2026-05-11' })],
+    };
+    const recipientB = {
+      slackUserId: 'U_BOB',
+      personNotionId: 'p2',
+      personEmail: 'bob@example.com',
+      personName: 'Bob',
+      shifts: [makeShift({ id: 's2', startDate: '2026-07-01', endDate: '2026-07-08' })],
+    };
+
+    it('renders Send + Cancel buttons for admins', () => {
+      const blocks = service.buildBroadcastPreviewBlocks({ recipients: [recipientA, recipientB], skipped: [] }, true);
+
+      const actions = blocks.find((b) => b.type === 'actions');
+      expect(actions).toBeDefined();
+      expect(actions.elements.map((e: any) => e.action_id)).toEqual(['broadcast_send', 'broadcast_cancel']);
+    });
+
+    it('omits action buttons and includes admin-only notice for non-admins', () => {
+      const blocks = service.buildBroadcastPreviewBlocks({ recipients: [recipientA], skipped: [] }, false);
+
+      expect(blocks.find((b) => b.type === 'actions')).toBeUndefined();
+      const noticeText = JSON.stringify(blocks);
+      expect(noticeText).toContain('Only on-call admins');
+    });
+
+    it('lists skipped people with their reason', () => {
+      const blocks = service.buildBroadcastPreviewBlocks(
+        {
+          recipients: [recipientA],
+          skipped: [{ personEmail: 'ghost@example.com', personName: 'Ghost', reason: 'no_slack_mapping' }],
+        },
+        true,
+      );
+      const text = JSON.stringify(blocks);
+      expect(text).toContain('Ghost');
+      expect(text).toContain('no Slack mapping');
+    });
+
+    it('shows an empty-state message and no Send button when nobody is up for broadcast', () => {
+      const blocks = service.buildBroadcastPreviewBlocks({ recipients: [], skipped: [] }, true);
+
+      expect(blocks.find((b) => b.type === 'actions')).toBeUndefined();
+      expect(JSON.stringify(blocks)).toContain('No one has upcoming shifts');
+    });
+  });
+
+  describe('respondToInteraction', () => {
+    const originalFetch = global.fetch;
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('POSTs the body to the Slack response_url with replace_original true by default', async () => {
+      const fetchMock = jest.fn().mockResolvedValue({ ok: true });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      await service.respondToInteraction('https://hooks.slack.com/actions/abc', {
+        text: 'done',
+        blocks: [{ type: 'section', text: { type: 'mrkdwn', text: 'done' } }],
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://hooks.slack.com/actions/abc');
+      expect(init.method).toBe('POST');
+      expect(init.headers['Content-Type']).toBe('application/json');
+      const body = JSON.parse(init.body);
+      expect(body.replace_original).toBe(true);
+      expect(body.text).toBe('done');
     });
   });
 });

@@ -1,7 +1,9 @@
 import { NotionService } from '../services/notion';
 import { SlackService } from '../services/slack';
 import { UserMappingService } from '../services/userMapping';
+import { BroadcastService } from '../services/broadcast';
 import { Shift, Constraint } from '../types';
+import { config } from '../config';
 
 export interface SlashCommandPayload {
   text: string;
@@ -22,6 +24,7 @@ export class SlackCommandHandler {
     private notion: NotionService,
     private slack: SlackService,
     private userMapping: UserMappingService,
+    private broadcast: BroadcastService,
   ) {}
 
   async handle(payload: SlashCommandPayload): Promise<SlashCommandResponse> {
@@ -43,6 +46,8 @@ export class SlackCommandHandler {
         return this.handleBlock(payload.trigger_id);
       case 'my-blocks':
         return this.handleMyBlocks(payload.user_id);
+      case 'broadcast':
+        return this.handleBroadcast(payload.user_id);
       case 'help':
         return this.handleHelp();
       default:
@@ -119,34 +124,7 @@ export class SlackCommandHandler {
       return { response_type: 'ephemeral', text: 'You have no upcoming shifts.' };
     }
 
-    const shiftOptions = upcoming.map((s) => ({
-      text: { type: 'plain_text' as const, text: `${s.startDate} → ${s.endDate} (${s.shiftType})` },
-      value: JSON.stringify({ shiftId: s.id, personId: s.personNotionId, startDate: s.startDate, endDate: s.endDate }),
-    }));
-
-    const modal: any = {
-      type: 'modal',
-      callback_id: 'replacement_select_shift',
-      title: { type: 'plain_text', text: 'Find Replacement' },
-      submit: { type: 'plain_text', text: 'Request Replacement' },
-      close: { type: 'plain_text', text: 'Cancel' },
-      private_metadata: JSON.stringify({ email }),
-      blocks: [
-        {
-          type: 'input',
-          block_id: 'shift_select_block',
-          label: { type: 'plain_text', text: 'Which shift do you need covered?' },
-          element: {
-            type: 'static_select',
-            action_id: 'shift_select',
-            options: shiftOptions,
-            ...(shiftOptions.length === 1 && { initial_option: shiftOptions[0] }),
-          },
-        },
-      ],
-    };
-
-    await this.slack.openModal(triggerId, modal);
+    await this.slack.openModal(triggerId, this.slack.buildReplacementPickerModal(upcoming, email));
     return { response_type: 'ephemeral', text: 'Opening shift picker...' };
   }
 
@@ -162,35 +140,34 @@ export class SlackCommandHandler {
       return { response_type: 'ephemeral', text: 'You have no upcoming shifts.' };
     }
 
-    const shiftOptions = upcoming.map((s) => ({
-      text: { type: 'plain_text' as const, text: `${s.startDate} → ${s.endDate} (${s.shiftType})` },
-      value: JSON.stringify({ shiftId: s.id, personId: s.personNotionId, startDate: s.startDate, endDate: s.endDate }),
-    }));
-
-    const modal: any = {
-      type: 'modal',
-      callback_id: 'swap_select_shift',
-      title: { type: 'plain_text', text: 'Swap Shift' },
-      submit: { type: 'plain_text', text: 'Request Swap' },
-      close: { type: 'plain_text', text: 'Cancel' },
-      private_metadata: JSON.stringify({ email }),
-      blocks: [
-        {
-          type: 'input',
-          block_id: 'shift_select_block',
-          label: { type: 'plain_text', text: 'Which shift do you want to swap?' },
-          element: {
-            type: 'static_select',
-            action_id: 'shift_select',
-            options: shiftOptions,
-            ...(shiftOptions.length === 1 && { initial_option: shiftOptions[0] }),
-          },
-        },
-      ],
-    };
-
-    await this.slack.openModal(triggerId, modal);
+    await this.slack.openModal(triggerId, this.slack.buildSwapPickerModal(upcoming, email));
     return { response_type: 'ephemeral', text: 'Opening shift picker...' };
+  }
+
+  /**
+   * `/oncall broadcast` — anyone can run; the response is an ephemeral
+   * dry-run preview. The Send button is rendered only when the invoker is
+   * on the `ONCALL_ADMINS` allowlist; non-admins see the preview with an
+   * admin-only notice.
+   */
+  private async handleBroadcast(slackUserId: string): Promise<SlashCommandResponse> {
+    const email = await this.userMapping.getEmailBySlackId(slackUserId);
+    if (!email) {
+      return {
+        response_type: 'ephemeral',
+        text: 'Could not find your email address. Please contact an admin.',
+      };
+    }
+
+    const isAdmin = config.broadcast.admins.includes(email.toLowerCase());
+    const plan = await this.broadcast.buildPlan();
+    const blocks = this.slack.buildBroadcastPreviewBlocks(plan, isAdmin);
+
+    return {
+      response_type: 'ephemeral',
+      text: `Broadcast preview — ${plan.recipients.length} recipient${plan.recipients.length === 1 ? '' : 's'}`,
+      blocks,
+    };
   }
 
   private async handleBlock(triggerId: string): Promise<SlashCommandResponse> {
@@ -221,9 +198,7 @@ export class SlackCommandHandler {
       };
     }
 
-    const lines = constraints.map(
-      (c) => `- *${c.startDate}* to *${c.endDate}*${c.reason ? ` — ${c.reason}` : ''}`,
-    );
+    const lines = constraints.map((c) => `- *${c.startDate}* to *${c.endDate}*${c.reason ? ` — ${c.reason}` : ''}`);
 
     return {
       response_type: 'ephemeral',
@@ -239,8 +214,9 @@ export class SlackCommandHandler {
       '`now` — Show who is currently on-call',
       '`replacement` — Need someone to cover your shift (one-way)',
       '`swap` — Swap shifts with someone (two-way, proposal-based)',
-      '`block` — Block out dates you\'re unavailable',
+      "`block` — Block out dates you're unavailable",
       '`my-blocks` — Show your blocked dates',
+      '`broadcast` — Preview and send the upcoming-shifts DM to the team (admins only can send)',
       '`help` — Show this command reference',
     ].join('\n');
 

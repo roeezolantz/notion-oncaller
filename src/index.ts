@@ -5,6 +5,7 @@ import { config } from './config';
 import { NotionService } from './services/notion';
 import { SlackService } from './services/slack';
 import { UserMappingService } from './services/userMapping';
+import { BroadcastService } from './services/broadcast';
 import { CronHandler } from './handlers/cron';
 import { SlackCommandHandler } from './handlers/slack';
 import { InteractionHandler } from './handlers/interactions';
@@ -16,16 +17,13 @@ const notion = new NotionService(
   config.notion.constraintsDbId,
   config.notion.constraintsPageId,
 );
-const slack = new SlackService(
-  slackClient,
-  config.slack.oncallChannel,
-  config.slack.oncallUsergroupId,
-);
+const slack = new SlackService(slackClient, config.slack.oncallChannel, config.slack.oncallUsergroupId);
 const userMapping = new UserMappingService(slackClient);
+const broadcast = new BroadcastService(notion, userMapping);
 
 const cronHandler = new CronHandler(notion, slack, userMapping);
-const commandHandler = new SlackCommandHandler(notion, slack, userMapping);
-const interactionHandler = new InteractionHandler(notion, slack, userMapping);
+const commandHandler = new SlackCommandHandler(notion, slack, userMapping, broadcast);
+const interactionHandler = new InteractionHandler(notion, slack, userMapping, broadcast);
 
 export function routeRequest(path: string, method: string): string {
   if (method === 'GET' && path === '/') return 'health';
@@ -45,16 +43,9 @@ export function verifySlackRequest(req: any): boolean {
 
   const sigBasestring = `v0:${timestamp}:${req.rawBody}`;
   const mySignature =
-    'v0=' +
-    crypto
-      .createHmac('sha256', config.slack.signingSecret)
-      .update(sigBasestring)
-      .digest('hex');
+    'v0=' + crypto.createHmac('sha256', config.slack.signingSecret).update(sigBasestring).digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(mySignature),
-    Buffer.from(signature),
-  );
+  return crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(signature));
 }
 
 export function verifyCronRequest(req: any): boolean {
@@ -126,10 +117,7 @@ http('app', async (req, res) => {
 
       try {
         const body = parseBody(req);
-        const payload =
-          typeof body.payload === 'string'
-            ? JSON.parse(body.payload)
-            : body.payload || body;
+        const payload = typeof body.payload === 'string' ? JSON.parse(body.payload) : body.payload || body;
 
         if (payload.type === 'block_actions') {
           await interactionHandler.handleBlockAction(payload);
