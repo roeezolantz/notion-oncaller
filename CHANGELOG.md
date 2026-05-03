@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `/oncall broadcast` — admin-gated subcommand that DMs every on-call team member with their own upcoming shifts. Two-step flow: anyone can run it to see an ephemeral preview; only members of `ONCALL_ADMINS` can hit Send. Each DM includes View Full Schedule, Request Replacement, and Request Swap buttons (the last two reuse the existing picker modals).
+- `ONCALL_ADMINS` env var: comma-separated emails on the broadcast send allowlist.
+- `BroadcastService` for building dry-run plans (pure data, no Slack I/O).
+- `SlackService.respondToInteraction()` helper for replacing ephemeral messages via Slack `response_url`.
+
+### Changed
+- Extracted shift-picker modal construction (`buildReplacementPickerModal`, `buildSwapPickerModal`) onto `SlackService` so the slash commands and the new broadcast DM buttons share the same builder.
+
 ## [1.0.0] - 2026-04-21
 
 ### Added

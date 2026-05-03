@@ -2,6 +2,7 @@ import { SlackCommandHandler, SlashCommandPayload } from '../slack';
 import { NotionService } from '../../services/notion';
 import { SlackService } from '../../services/slack';
 import { UserMappingService } from '../../services/userMapping';
+import { BroadcastService } from '../../services/broadcast';
 import { Shift, Constraint } from '../../types';
 
 // --- Mock factories ---
@@ -55,8 +56,15 @@ function createMocks() {
   } as unknown as jest.Mocked<NotionService>;
 
   const slack = {
-    buildShiftListBlocks: jest.fn().mockReturnValue([{ type: 'header', text: { type: 'plain_text', text: 'Schedule' } }]),
+    buildShiftListBlocks: jest
+      .fn()
+      .mockReturnValue([{ type: 'header', text: { type: 'plain_text', text: 'Schedule' } }]),
     buildConstraintModal: jest.fn().mockReturnValue({ type: 'modal', callback_id: 'add_constraint' }),
+    buildReplacementPickerModal: jest.fn().mockReturnValue({ type: 'modal', callback_id: 'replacement_select_shift' }),
+    buildSwapPickerModal: jest.fn().mockReturnValue({ type: 'modal', callback_id: 'swap_select_shift' }),
+    buildBroadcastPreviewBlocks: jest
+      .fn()
+      .mockReturnValue([{ type: 'header', text: { type: 'plain_text', text: 'Broadcast preview' } }]),
     openModal: jest.fn().mockResolvedValue(undefined),
   } as unknown as jest.Mocked<SlackService>;
 
@@ -66,7 +74,11 @@ function createMocks() {
     getSlackUserId: jest.fn().mockResolvedValue('U123'),
   } as unknown as jest.Mocked<UserMappingService>;
 
-  return { notion, slack, userMapping };
+  const broadcast = {
+    buildPlan: jest.fn().mockResolvedValue({ recipients: [], skipped: [] }),
+  } as unknown as jest.Mocked<BroadcastService>;
+
+  return { notion, slack, userMapping, broadcast };
 }
 
 describe('SlackCommandHandler', () => {
@@ -74,6 +86,7 @@ describe('SlackCommandHandler', () => {
   let notion: jest.Mocked<NotionService>;
   let slack: jest.Mocked<SlackService>;
   let userMapping: jest.Mocked<UserMappingService>;
+  let broadcast: jest.Mocked<BroadcastService>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -81,7 +94,8 @@ describe('SlackCommandHandler', () => {
     notion = mocks.notion;
     slack = mocks.slack;
     userMapping = mocks.userMapping;
-    handler = new SlackCommandHandler(notion, slack, userMapping);
+    broadcast = mocks.broadcast;
+    handler = new SlackCommandHandler(notion, slack, userMapping, broadcast);
   });
 
   // 1. "list" returns upcoming shifts
@@ -98,10 +112,7 @@ describe('SlackCommandHandler', () => {
       expect(result.text).toBe('On-Call Schedule');
       expect(notion.getActiveShift).toHaveBeenCalled();
       expect(notion.getUpcomingShifts).toHaveBeenCalled();
-      expect(slack.buildShiftListBlocks).toHaveBeenCalledWith(
-        [active, upcoming],
-        'On-Call Schedule',
-      );
+      expect(slack.buildShiftListBlocks).toHaveBeenCalledWith([active, upcoming], 'On-Call Schedule');
       expect(result.blocks).toBeDefined();
     });
   });
@@ -267,6 +278,72 @@ describe('SlackCommandHandler', () => {
       const result = await handler.handle(makePayload({ text: '' }));
 
       expect(result.text).toContain('On-Call Bot Commands');
+    });
+  });
+
+  describe('broadcast', () => {
+    it('returns error when invoker has no email mapping', async () => {
+      userMapping.getEmailBySlackId.mockResolvedValue(null);
+
+      const result = await handler.handle(makePayload({ text: 'broadcast' }));
+
+      expect(result.response_type).toBe('ephemeral');
+      expect(result.text).toContain('Could not find your email');
+      expect(broadcast.buildPlan).not.toHaveBeenCalled();
+    });
+
+    it('builds the plan and renders the preview blocks', async () => {
+      const plan = {
+        recipients: [
+          {
+            slackUserId: 'U_ALICE',
+            personNotionId: 'p1',
+            personEmail: 'alice@example.com',
+            personName: 'Alice',
+            shifts: [makeShift({ id: 's1' })],
+          },
+        ],
+        skipped: [],
+      };
+      broadcast.buildPlan.mockResolvedValue(plan);
+
+      const result = await handler.handle(makePayload({ text: 'broadcast' }));
+
+      expect(result.response_type).toBe('ephemeral');
+      expect(result.text).toContain('1 recipient');
+      expect(broadcast.buildPlan).toHaveBeenCalledTimes(1);
+      expect(slack.buildBroadcastPreviewBlocks).toHaveBeenCalledWith(plan, expect.any(Boolean));
+    });
+
+    it('treats invoker as admin when their email is in ONCALL_ADMINS (case-insensitive)', async () => {
+      const ORIGINAL = process.env.ONCALL_ADMINS;
+      process.env.ONCALL_ADMINS = 'ALICE@example.com';
+      jest.resetModules();
+      // Re-import the handler module so it picks up the refreshed config.
+      const { SlackCommandHandler: FreshHandler } = await import('../slack');
+      const fresh = new FreshHandler(notion, slack, userMapping, broadcast);
+
+      await fresh.handle(makePayload({ text: 'broadcast' }));
+
+      expect(slack.buildBroadcastPreviewBlocks).toHaveBeenCalledWith(expect.anything(), true);
+
+      process.env.ONCALL_ADMINS = ORIGINAL;
+      jest.resetModules();
+    });
+
+    it('treats invoker as non-admin when their email is not in ONCALL_ADMINS', async () => {
+      const ORIGINAL = process.env.ONCALL_ADMINS;
+      process.env.ONCALL_ADMINS = 'someone-else@example.com';
+      jest.resetModules();
+      const { SlackCommandHandler: FreshHandler } = await import('../slack');
+      const fresh = new FreshHandler(notion, slack, userMapping, broadcast);
+
+      await fresh.handle(makePayload({ text: 'broadcast' }));
+
+      expect(slack.buildBroadcastPreviewBlocks).toHaveBeenCalledWith(expect.anything(), false);
+
+      process.env.ONCALL_ADMINS = ORIGINAL;
+      jest.resetModules();
     });
   });
 });
