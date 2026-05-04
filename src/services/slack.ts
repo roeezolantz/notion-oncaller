@@ -1,5 +1,6 @@
 import { WebClient } from '@slack/web-api';
 import { Shift } from '../types';
+import { BroadcastPlan, BroadcastRecipient } from './broadcast';
 
 export class SlackService {
   private client: WebClient;
@@ -59,9 +60,7 @@ export class SlackService {
   }
 
   async sendDM(userId: string, text: string, blocks?: any[]): Promise<void> {
-    console.log(
-      `[slack] sendDM user=${userId} blocks=${blocks?.length ?? 0} text="${this.previewText(text)}"`,
-    );
+    console.log(`[slack] sendDM user=${userId} blocks=${blocks?.length ?? 0} text="${this.previewText(text)}"`);
     const result = await this.client.conversations.open({ users: userId });
     const dmChannelId = result.channel?.id;
     if (!dmChannelId) {
@@ -89,6 +88,30 @@ export class SlackService {
       trigger_id: triggerId,
       view,
     });
+  }
+
+  /**
+   * POSTs to a Slack interaction `response_url` to update or replace the
+   * original ephemeral/in-channel message. Slack's `response_url` is valid
+   * for 30 minutes after the interaction.
+   *
+   * Defaults to `replace_original: true` so callers can simply pass the new
+   * message body.
+   */
+  async respondToInteraction(
+    responseUrl: string,
+    body: { text: string; blocks?: any[]; replace_original?: boolean; response_type?: 'ephemeral' | 'in_channel' },
+  ): Promise<void> {
+    const payload = { replace_original: true, ...body };
+    const res = await fetch(responseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Slack response_url POST failed: ${res.status} ${text}`);
+    }
   }
 
   // Block/message builders
@@ -247,6 +270,235 @@ export class SlackService {
         ],
       },
     ];
+  }
+
+  /**
+   * Per-recipient DM blocks for `/oncall broadcast`: a header line, the
+   * recipient's bulleted upcoming shifts, and action buttons (View Schedule,
+   * Request Replacement, Request Swap).
+   *
+   * The `View Full Schedule` button is omitted when `scheduleUrl` is empty
+   * — Slack rejects buttons with empty URLs (`invalid_blocks`).
+   */
+  buildBroadcastDMBlocks(recipient: BroadcastRecipient, scheduleUrl: string): any[] {
+    const lines = recipient.shifts.map((s) => `• ${s.startDate} → ${s.endDate}`).join('\n');
+
+    const elements: any[] = [];
+    if (scheduleUrl) {
+      elements.push({
+        type: 'button',
+        text: { type: 'plain_text', text: ':spiral_calendar_pad: View Full Schedule', emoji: true },
+        url: scheduleUrl,
+        action_id: 'broadcast_view_schedule',
+      });
+    }
+    elements.push(
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: ':arrows_counterclockwise: Request Replacement', emoji: true },
+        action_id: 'broadcast_request_replacement',
+        value: JSON.stringify({ kind: 'broadcast_request_replacement' }),
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: ':handshake: Request Swap', emoji: true },
+        action_id: 'broadcast_request_swap',
+        value: JSON.stringify({ kind: 'broadcast_request_swap' }),
+      },
+    );
+
+    return [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: ":spiral_calendar_pad: *Here's your updated on-call schedule — please make sure to remember.*",
+        },
+      },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: lines },
+      },
+      {
+        type: 'actions',
+        elements,
+      },
+    ];
+  }
+
+  /**
+   * Ephemeral preview blocks for `/oncall broadcast`. Lists who would be
+   * DM'd, who would be skipped (and why), and renders Send/Cancel buttons
+   * when the invoker is on the admin allowlist.
+   *
+   * Non-admins see the same recipient/skip info plus a notice explaining
+   * that only admins can fire the broadcast.
+   */
+  buildBroadcastPreviewBlocks(plan: BroadcastPlan, isAdmin: boolean): any[] {
+    const blocks: any[] = [
+      {
+        type: 'header',
+        text: { type: 'plain_text', text: 'Broadcast preview', emoji: true },
+      },
+    ];
+
+    if (plan.recipients.length === 0) {
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: '_No one has upcoming shifts — nothing to broadcast._' },
+      });
+      if (plan.skipped.length > 0) {
+        blocks.push(this.buildSkippedSection(plan));
+      }
+      return blocks;
+    }
+
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `Will DM *${plan.recipients.length}* ${plan.recipients.length === 1 ? 'person' : 'people'}:`,
+      },
+    });
+
+    for (const r of plan.recipients) {
+      const shiftLines = r.shifts.map((s) => `  • ${s.startDate} → ${s.endDate}`).join('\n');
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*${r.personName}* (<@${r.slackUserId}>)\n${shiftLines}`,
+        },
+      });
+    }
+
+    if (plan.skipped.length > 0) {
+      blocks.push(this.buildSkippedSection(plan));
+    }
+
+    if (isAdmin) {
+      blocks.push({
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Send', emoji: true },
+            style: 'primary',
+            action_id: 'broadcast_send',
+            value: JSON.stringify({ kind: 'broadcast_send' }),
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Cancel', emoji: true },
+            action_id: 'broadcast_cancel',
+            value: JSON.stringify({ kind: 'broadcast_cancel' }),
+          },
+        ],
+      });
+    } else {
+      blocks.push({
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: '_Only on-call admins can send broadcasts. Ask one of them to run this if it looks right._',
+          },
+        ],
+      });
+    }
+
+    return blocks;
+  }
+
+  private buildSkippedSection(plan: BroadcastPlan): any {
+    const reasonLabel = (reason: string): string => {
+      switch (reason) {
+        case 'no_slack_mapping':
+          return 'no Slack mapping';
+        default:
+          return reason;
+      }
+    };
+    const lines = plan.skipped
+      .map((s) => `  • ${s.personName} (${s.personEmail}) — ${reasonLabel(s.reason)}`)
+      .join('\n');
+    return {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Skipped:*\n${lines}` },
+    };
+  }
+
+  /**
+   * Modal that lets a user pick which of their upcoming shifts they want a
+   * replacement for. Used by the `/oncall replacement` slash command and by
+   * the "Request Replacement" button on broadcast DMs.
+   */
+  buildReplacementPickerModal(shifts: Shift[], email: string): any {
+    return this.buildShiftPickerModal({
+      callbackId: 'replacement_select_shift',
+      title: 'Find Replacement',
+      submit: 'Request Replacement',
+      label: 'Which shift do you need covered?',
+      shifts,
+      email,
+    });
+  }
+
+  /**
+   * Modal that lets a user pick which of their upcoming shifts they want to
+   * swap. Used by the `/oncall swap` slash command and by the "Request Swap"
+   * button on broadcast DMs.
+   */
+  buildSwapPickerModal(shifts: Shift[], email: string): any {
+    return this.buildShiftPickerModal({
+      callbackId: 'swap_select_shift',
+      title: 'Swap Shift',
+      submit: 'Request Swap',
+      label: 'Which shift do you want to swap?',
+      shifts,
+      email,
+    });
+  }
+
+  private buildShiftPickerModal(opts: {
+    callbackId: string;
+    title: string;
+    submit: string;
+    label: string;
+    shifts: Shift[];
+    email: string;
+  }): any {
+    const shiftOptions = opts.shifts.map((s) => ({
+      text: { type: 'plain_text' as const, text: `${s.startDate} → ${s.endDate} (${s.shiftType})` },
+      value: JSON.stringify({
+        shiftId: s.id,
+        personId: s.personNotionId,
+        startDate: s.startDate,
+        endDate: s.endDate,
+      }),
+    }));
+
+    return {
+      type: 'modal',
+      callback_id: opts.callbackId,
+      title: { type: 'plain_text', text: opts.title },
+      submit: { type: 'plain_text', text: opts.submit },
+      close: { type: 'plain_text', text: 'Cancel' },
+      private_metadata: JSON.stringify({ email: opts.email }),
+      blocks: [
+        {
+          type: 'input',
+          block_id: 'shift_select_block',
+          label: { type: 'plain_text', text: opts.label },
+          element: {
+            type: 'static_select',
+            action_id: 'shift_select',
+            options: shiftOptions,
+            ...(shiftOptions.length === 1 && { initial_option: shiftOptions[0] }),
+          },
+        },
+      ],
+    };
   }
 
   buildConstraintModal(triggerId: string): any {

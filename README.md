@@ -101,6 +101,7 @@ Manage your team's on-call schedule entirely through Slack slash commands, with 
 | `/oncall swap` | Trade shifts with someone (two-way, proposal-based) |
 | `/oncall block` | Block out dates you're unavailable |
 | `/oncall my-blocks` | Show your blocked dates |
+| `/oncall broadcast` | Preview, then DM every on-call their upcoming shifts (admin-only send) |
 | `/oncall help` | Show available commands |
 
 ---
@@ -140,6 +141,21 @@ Block out dates when you're unavailable:
 3. The block is saved to the Notion Constraints database
 4. If your blocked dates overlap an existing shift, you'll get a warning
 5. View your blocks anytime with `/oncall my-blocks`
+
+---
+
+## How Broadcast Works
+
+Send every on-call team member a DM with their upcoming shifts — useful after schedule changes:
+
+1. Anyone runs `/oncall broadcast` — an ephemeral preview shows who would be DM'd and the exact shift list per person.
+2. Admins (listed in `ONCALL_ADMINS`) see **Send** and **Cancel** buttons; non-admins see the same preview with a notice that only admins can send.
+3. Click **Send** — the plan is rebuilt against current Notion state (a true dry-run preview), and DMs go out one by one with action buttons:
+   - **View Full Schedule** — opens `NOTION_SCHEDULE_URL`
+   - **Request Replacement** — opens the same picker as `/oncall replacement`
+   - **Request Swap** — opens the same picker as `/oncall swap`
+4. The preview message is replaced with a result line: `Sent to N. Skipped M (no Slack mapping). Failed K (see logs).`
+5. People with no upcoming shifts or no Slack mapping are skipped automatically.
 
 ---
 
@@ -216,6 +232,7 @@ Your Slack app needs these OAuth scopes:
 | `SLACK_ONCALL_CHANNEL` | Slack channel ID for notifications |
 | `SLACK_ONCALL_USERGROUP_ID` | Slack `@oncall` user group ID |
 | `CRON_SECRET` | Shared secret for cron endpoint authentication |
+| `ONCALL_ADMINS` | Comma-separated emails allowed to send `/oncall broadcast` (e.g. `alice@example.com,bob@example.com`) |
 
 ---
 

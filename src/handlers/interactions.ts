@@ -1,12 +1,16 @@
 import { NotionService } from '../services/notion';
 import { SlackService } from '../services/slack';
 import { UserMappingService } from '../services/userMapping';
+import { BroadcastService } from '../services/broadcast';
+import { config } from '../config';
+import { sleep } from '../utils';
 
 export class InteractionHandler {
   constructor(
     private notion: NotionService,
     private slack: SlackService,
     private userMapping: UserMappingService,
+    private broadcast: BroadcastService,
   ) {}
 
   async handleBlockAction(payload: any): Promise<void> {
@@ -15,8 +19,11 @@ export class InteractionHandler {
 
     const actionId = action.action_id;
 
-    // Skip URL buttons (view_schedule etc.) — they have no value to parse
-    if (!action.value || actionId.startsWith('view_')) return;
+    // URL-only buttons (e.g. broadcast_view_schedule, switch_request_view_schedule)
+    // have no value to parse — Slack still pings us, but there's nothing to do.
+    if (!action.value || actionId.startsWith('view_') || actionId === 'broadcast_view_schedule') {
+      return;
+    }
 
     let value: any;
     try {
@@ -52,6 +59,20 @@ export class InteractionHandler {
       // Legacy: reminder button uses replacement flow
       case 'switch_request_from_reminder':
         await this.handleSwitchFromReminder(payload, value);
+        break;
+
+      // Broadcast flow (preview → send/cancel)
+      case 'broadcast_send':
+        await this.handleBroadcastSend(payload);
+        break;
+      case 'broadcast_cancel':
+        await this.handleBroadcastCancel(payload);
+        break;
+      case 'broadcast_request_replacement':
+        await this.handleBroadcastRequestReplacement(payload);
+        break;
+      case 'broadcast_request_swap':
+        await this.handleBroadcastRequestSwap(payload);
         break;
     }
   }
@@ -97,8 +118,11 @@ export class InteractionHandler {
     });
 
     const mention = await this.userMapping.getSlackMention(email);
-    const blocks = this.slack.buildReplacementRequestBlocks(personName, shift || shiftData as any, requestData);
-    await this.slack.postToChannel(`${mention} needs someone to cover ${shiftData.startDate} → ${shiftData.endDate}`, blocks);
+    const blocks = this.slack.buildReplacementRequestBlocks(personName, shift || (shiftData as any), requestData);
+    await this.slack.postToChannel(
+      `${mention} needs someone to cover ${shiftData.startDate} → ${shiftData.endDate}`,
+      blocks,
+    );
   }
 
   private async handleReplacementAccept(payload: any, value: any): Promise<void> {
@@ -113,7 +137,10 @@ export class InteractionHandler {
     // Find volunteer's Notion person ID from their shifts
     const volunteerShifts = await this.notion.getShiftsForPerson(volunteerEmail);
     if (volunteerShifts.length === 0) {
-      await this.slack.sendDM(volunteerSlackId, 'Could not find your Notion person record. Cannot complete the replacement.');
+      await this.slack.sendDM(
+        volunteerSlackId,
+        'Could not find your Notion person record. Cannot complete the replacement.',
+      );
       return;
     }
     const volunteerPersonNotionId = volunteerShifts[0].personNotionId;
@@ -169,8 +196,11 @@ export class InteractionHandler {
     });
 
     const mention = await this.userMapping.getSlackMention(email);
-    const blocks = this.slack.buildSwapRequestBlocks(personName, shift || shiftData as any, requestData);
-    await this.slack.postToChannel(`${mention} wants to swap their ${shiftData.startDate} → ${shiftData.endDate} shift`, blocks);
+    const blocks = this.slack.buildSwapRequestBlocks(personName, shift || (shiftData as any), requestData);
+    await this.slack.postToChannel(
+      `${mention} wants to swap their ${shiftData.startDate} → ${shiftData.endDate} shift`,
+      blocks,
+    );
   }
 
   private async handleSwapPropose(payload: any, value: any): Promise<void> {
@@ -294,11 +324,7 @@ export class InteractionHandler {
       ];
 
       const requesterMention = await this.userMapping.getSlackMention(metadata.requesterEmail);
-      await this.slack.sendDM(
-        requesterSlackId,
-        `Swap proposal from ${proposerName}`,
-        blocks,
-      );
+      await this.slack.sendDM(requesterSlackId, `Swap proposal from ${proposerName}`, blocks);
     }
 
     // DM the proposer confirmation
@@ -306,10 +332,7 @@ export class InteractionHandler {
     const requesterShift = requesterShifts.find((s: any) => s.id === metadata.requesterShiftId);
     const requesterName = requesterShift?.personName || '';
 
-    await this.slack.sendDM(
-      proposerSlackId,
-      `Your proposal was sent to ${requesterName}. Waiting for their response.`,
-    );
+    await this.slack.sendDM(proposerSlackId, `Your proposal was sent to ${requesterName}. Waiting for their response.`);
   }
 
   private async handleSwapAccept(payload: any, value: any): Promise<void> {
@@ -399,6 +422,124 @@ export class InteractionHandler {
     await this.slack.sendDM(userSlackId, ':white_check_mark: Replacement request posted to the channel.');
   }
 
+  // --- Broadcast flow ---
+
+  private async handleBroadcastSend(payload: any): Promise<void> {
+    const responseUrl: string | undefined = payload.response_url;
+    const slackUserId = payload.user?.id;
+    if (!responseUrl || !slackUserId) {
+      console.error('[broadcast] send: missing response_url or user.id');
+      return;
+    }
+
+    const email = await this.userMapping.getEmailBySlackId(slackUserId);
+    const isAdmin = !!email && config.broadcast.admins.includes(email.toLowerCase());
+    if (!isAdmin) {
+      await this.slack.respondToInteraction(responseUrl, {
+        text: 'Only on-call admins can send broadcasts.',
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: ':no_entry: Only on-call admins can send broadcasts.' },
+          },
+        ],
+      });
+      return;
+    }
+
+    // Rebuild against current state — preview was a dry run.
+    const plan = await this.broadcast.buildPlan();
+
+    if (plan.recipients.length === 0) {
+      await this.slack.respondToInteraction(responseUrl, {
+        text: 'Nothing to broadcast.',
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: '_Nothing to broadcast — nobody has upcoming shifts._' },
+          },
+        ],
+      });
+      return;
+    }
+
+    let sent = 0;
+    let failed = 0;
+    const failures: string[] = [];
+
+    for (const recipient of plan.recipients) {
+      try {
+        const blocks = this.slack.buildBroadcastDMBlocks(recipient, config.notion.scheduleUrl);
+        const text = `:spiral_calendar_pad: Here's your updated on-call schedule — please make sure to remember.`;
+        await this.slack.sendDM(recipient.slackUserId, text, blocks);
+        console.log(
+          `[broadcast] sent to ${recipient.personName} <${recipient.personEmail}> slackUser=${recipient.slackUserId} shifts=${recipient.shifts.length}`,
+        );
+        sent += 1;
+      } catch (err) {
+        failed += 1;
+        failures.push(recipient.personName);
+        console.error(`[broadcast] send failed for ${recipient.personEmail}:`, err);
+      }
+      await sleep(300);
+    }
+
+    const summaryLines = [`:white_check_mark: Broadcast complete.`, `Sent to *${sent}*.`];
+    if (plan.skipped.length > 0) {
+      summaryLines.push(`Skipped *${plan.skipped.length}* (no Slack mapping).`);
+    }
+    if (failed > 0) {
+      summaryLines.push(`Failed for *${failed}* (${failures.join(', ')}) — see logs.`);
+    }
+
+    await this.slack.respondToInteraction(responseUrl, {
+      text: 'Broadcast complete.',
+      blocks: [{ type: 'section', text: { type: 'mrkdwn', text: summaryLines.join('\n') } }],
+    });
+  }
+
+  private async handleBroadcastCancel(payload: any): Promise<void> {
+    const responseUrl: string | undefined = payload.response_url;
+    if (!responseUrl) return;
+    await this.slack.respondToInteraction(responseUrl, {
+      text: 'Broadcast cancelled.',
+      blocks: [{ type: 'section', text: { type: 'mrkdwn', text: '_Broadcast cancelled._' } }],
+    });
+  }
+
+  private async handleBroadcastRequestReplacement(payload: any): Promise<void> {
+    await this.openShiftPickerForBroadcast(payload, 'replacement');
+  }
+
+  private async handleBroadcastRequestSwap(payload: any): Promise<void> {
+    await this.openShiftPickerForBroadcast(payload, 'swap');
+  }
+
+  private async openShiftPickerForBroadcast(payload: any, kind: 'replacement' | 'swap'): Promise<void> {
+    const slackUserId = payload.user?.id;
+    const triggerId = payload.trigger_id;
+    if (!slackUserId || !triggerId) return;
+
+    const email = await this.userMapping.getEmailBySlackId(slackUserId);
+    if (!email) {
+      await this.slack.sendDM(slackUserId, 'Could not find your Notion account.');
+      return;
+    }
+
+    const myShifts = await this.notion.getShiftsForPerson(email);
+    const upcoming = myShifts.filter((s) => s.status === 'Scheduled');
+    if (upcoming.length === 0) {
+      await this.slack.sendDM(slackUserId, 'You have no upcoming shifts.');
+      return;
+    }
+
+    const modal =
+      kind === 'replacement'
+        ? this.slack.buildReplacementPickerModal(upcoming, email)
+        : this.slack.buildSwapPickerModal(upcoming, email);
+    await this.slack.openModal(triggerId, modal);
+  }
+
   // --- Constraints ---
 
   private async handleAddConstraint(payload: any): Promise<void> {
@@ -417,7 +558,10 @@ export class InteractionHandler {
     const userSlackId = payload.user.id;
     const userEmail = await this.userMapping.getEmailBySlackId(userSlackId);
     if (!userEmail) {
-      await this.slack.sendDM(userSlackId, 'Could not find your Notion account. Make sure your Slack and Notion emails match.');
+      await this.slack.sendDM(
+        userSlackId,
+        'Could not find your Notion account. Make sure your Slack and Notion emails match.',
+      );
       return;
     }
 
@@ -431,9 +575,7 @@ export class InteractionHandler {
     const overlapping = await this.notion.getOverlappingShifts(userEmail, startDate, endDate);
 
     if (overlapping.length > 0) {
-      const shiftDates = overlapping
-        .map((s) => `${s.startDate} → ${s.endDate}`)
-        .join(', ');
+      const shiftDates = overlapping.map((s) => `${s.startDate} → ${s.endDate}`).join(', ');
 
       await this.slack.sendDM(
         userSlackId,
@@ -441,13 +583,7 @@ export class InteractionHandler {
       );
     }
 
-    await this.notion.createConstraint(
-      notionPersonId,
-      userName,
-      startDate,
-      endDate,
-      reason,
-    );
+    await this.notion.createConstraint(notionPersonId, userName, startDate, endDate, reason);
 
     await this.slack.sendDM(
       userSlackId,

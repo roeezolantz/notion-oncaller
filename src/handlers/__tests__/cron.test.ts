@@ -137,7 +137,7 @@ describe('CronHandler', () => {
 
       expect(slack.sendDM).toHaveBeenCalledWith(
         'U99999',
-        expect.stringContaining(':calendar_spiral: *Reminder:* Your on-call shift starts in 7 days'),
+        expect.stringContaining(':spiral_calendar_pad: *Reminder:* Your on-call shift starts in 7 days'),
         expect.any(Array),
       );
     });

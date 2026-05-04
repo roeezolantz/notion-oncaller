@@ -15,4 +15,10 @@ export const config = {
   cron: {
     secret: process.env.CRON_SECRET || '',
   },
+  broadcast: {
+    admins: (process.env.ONCALL_ADMINS || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  },
 } as const;
