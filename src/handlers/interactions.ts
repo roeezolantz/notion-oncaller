@@ -470,7 +470,7 @@ export class InteractionHandler {
     for (const recipient of plan.recipients) {
       try {
         const blocks = this.slack.buildBroadcastDMBlocks(recipient, config.notion.scheduleUrl);
-        const text = `:calendar_spiral: Here's your updated on-call schedule — please make sure to remember.`;
+        const text = `:spiral_calendar_pad: Here's your updated on-call schedule — please make sure to remember.`;
         await this.slack.sendDM(recipient.slackUserId, text, blocks);
         console.log(
           `[broadcast] sent to ${recipient.personName} <${recipient.personEmail}> slackUser=${recipient.slackUserId} shifts=${recipient.shifts.length}`,

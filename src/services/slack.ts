@@ -312,7 +312,7 @@ export class SlackService {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: ":calendar_spiral: *Here's your updated on-call schedule — please make sure to remember.*",
+          text: ":spiral_calendar_pad: *Here's your updated on-call schedule — please make sure to remember.*",
         },
       },
       {

@@ -139,7 +139,7 @@ export class CronHandler {
       console.log(
         `[cron] ${label} reminder: DMing ${shift.personName} <${shift.personEmail}> slackUser=${slackUserId} (shift ${shift.startDate}→${shift.endDate})`,
       );
-      const emoji = label === '1 day' ? ':bell:' : ':calendar_spiral:';
+      const emoji = label === '1 day' ? ':bell:' : ':spiral_calendar_pad:';
       const text = `${emoji} *Reminder:* Your on-call shift starts in ${label} (${shift.startDate} → ${shift.endDate}).`;
       const blocks = [
         {
